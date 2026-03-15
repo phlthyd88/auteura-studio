@@ -10,6 +10,7 @@ export interface TimelinePreviewSource {
   readonly mediaItem: MediaItem;
   readonly sourceId: string;
   readonly sourceOffsetMs: number;
+  readonly sourceUrl: string;
 }
 
 export interface TimelinePreviewState {

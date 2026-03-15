@@ -98,6 +98,7 @@ export interface RecordingControllerContextValue {
 }
 
 const RecordingControllerContext = createContext<RecordingControllerContextValue | null>(null);
+const recordingLiveInputOwnerId = 'recording-controller';
 
 const recordingProfiles: readonly RecordingProfile[] = [
   {
@@ -194,7 +195,12 @@ function createMediaName(
 }
 
 export function RecordingController({ children }: PropsWithChildren): JSX.Element {
-  const { destinationStream, ensureAudioContext } = useAudioContext();
+  const {
+    destinationStream,
+    ensureAudioContext,
+    releaseLiveInputStream,
+    requestLiveInputStream,
+  } = useAudioContext();
   const { canvasRef } = useRenderController();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -554,6 +560,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       const thumbnail = createThumbnail(canvasElement);
 
       return {
+        availability: 'available',
         blob,
         captureMode,
         createdAt: timestamp,
@@ -741,6 +748,10 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
     recordingStreamRef.current = null;
   }, [cancelCountdown]);
 
+  const releaseRecordingLiveInput = useCallback((): void => {
+    void releaseLiveInputStream(recordingLiveInputOwnerId);
+  }, [releaseLiveInputStream]);
+
   const resetMediaDatabase = useCallback(async (): Promise<void> => {
     try {
       stopRecording();
@@ -859,6 +870,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
         throw new Error('Cannot start recording because the render canvas is unavailable.');
       }
 
+      await requestLiveInputStream(recordingLiveInputOwnerId);
       const combinedStream = await buildRecordingStream();
       const mimeType = getSupportedMimeType();
       const recorderOptions: MediaRecorderOptions =
@@ -930,6 +942,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       recorder.onerror = (): void => {
         setError('The recording engine encountered an unexpected error.');
         setIsRecording(false);
+        releaseRecordingLiveInput();
       };
 
       recorder.onstop = (): void => {
@@ -962,6 +975,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
             setRecordingTime(0);
             mediaRecorderRef.current = null;
             recordingStartedAtRef.current = null;
+            releaseRecordingLiveInput();
 
             if (currentRecordingStream !== null) {
               currentRecordingStream.getTracks().forEach((track: MediaStreamTrack): void => {
@@ -984,6 +998,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       recordingStartedAtRef.current = null;
       setIsRecording(false);
       setRecordingTime(0);
+      releaseRecordingLiveInput();
       if (pendingRecordingId !== null) {
         await discardChunkedRecordingMedia(pendingRecordingId).catch((): void => undefined);
       }
@@ -1002,7 +1017,9 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
     isRecording,
     isTimelapseCapturing,
     refreshMediaItems,
+    releaseRecordingLiveInput,
     runCountdown,
+    requestLiveInputStream,
     selectedProfile.videoBitsPerSecond,
   ]);
 
@@ -1197,10 +1214,11 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
         track.stop();
       });
       recordingStreamRef.current = null;
+      releaseRecordingLiveInput();
       timelapseWorkerRef.current?.terminate();
       timelapseWorkerRef.current = null;
     };
-  }, [cancelCountdown, postTimelapseWorkerMessage]);
+  }, [cancelCountdown, postTimelapseWorkerMessage, releaseRecordingLiveInput]);
 
   const contextValue = useMemo<RecordingControllerContextValue>(
     (): RecordingControllerContextValue => ({

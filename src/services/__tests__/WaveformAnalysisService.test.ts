@@ -12,6 +12,7 @@ function createMediaItem(id: string): MediaItem {
   const timestamp = 1000;
 
   return {
+    availability: 'available',
     blob: new Blob(['waveform-test'], { type: 'audio/webm' }),
     captureMode: 'recording',
     createdAt: timestamp,

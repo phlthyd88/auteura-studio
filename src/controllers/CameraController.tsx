@@ -9,7 +9,6 @@ import {
   type MutableRefObject,
   type PropsWithChildren,
 } from 'react';
-import { useAudioContext } from '../context/AudioContext';
 import {
   buildCameraConstraints,
   getCameraCapabilitySummary,
@@ -60,8 +59,8 @@ function stopMediaStream(stream: MediaStream | null): void {
 
 export function CameraController({ children }: PropsWithChildren): JSX.Element {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const liveInputStreamRef = useRef<MediaStream | null>(null);
-  const { setLiveInputStream } = useAudioContext();
+  const isMountedRef = useRef<boolean>(true);
+  const refreshRequestIdRef = useRef<number>(0);
   const [deviceList, setDeviceList] = useState<readonly MediaDeviceInfo[]>([]);
   const [activeDeviceIdState, setActiveDeviceIdState] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -104,7 +103,18 @@ export function CameraController({ children }: PropsWithChildren): JSX.Element {
   );
 
   const refreshDevices = useCallback(async (): Promise<void> => {
+    const requestId = refreshRequestIdRef.current + 1;
+    refreshRequestIdRef.current = requestId;
+
+    function shouldApplyResult(): boolean {
+      return isMountedRef.current && refreshRequestIdRef.current === requestId;
+    }
+
     if (!supportsMediaDevices) {
+      if (!shouldApplyResult()) {
+        return;
+      }
+
       setDeviceList([]);
       setHasEnumeratedDevices(true);
       setError('Media device APIs are not available in this browser.');
@@ -115,6 +125,11 @@ export function CameraController({ children }: PropsWithChildren): JSX.Element {
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
+
+      if (!shouldApplyResult()) {
+        return;
+      }
+
       const nextVideoDevices = devices.filter(
         (device: MediaDeviceInfo): boolean => device.kind === 'videoinput',
       );
@@ -140,13 +155,19 @@ export function CameraController({ children }: PropsWithChildren): JSX.Element {
         });
       }
     } catch (deviceError: unknown) {
+      if (!shouldApplyResult()) {
+        return;
+      }
+
       const nextError = getCameraErrorDescriptor(deviceError);
       setDeviceList([]);
       setActiveDeviceIdState(null);
       setError(nextError.message);
       setErrorCode(nextError.code);
     } finally {
-      setHasEnumeratedDevices(true);
+      if (shouldApplyResult()) {
+        setHasEnumeratedDevices(true);
+      }
     }
   }, [supportsMediaDevices]);
 
@@ -201,6 +222,15 @@ export function CameraController({ children }: PropsWithChildren): JSX.Element {
       setSelectedFrameRateState(frameRateOptions[0] ?? null);
     }
   }, [frameRateOptions, selectedFrameRate]);
+
+  useEffect((): (() => void) | void => {
+    isMountedRef.current = true;
+
+    return (): void => {
+      isMountedRef.current = false;
+      refreshRequestIdRef.current += 1;
+    };
+  }, []);
 
   useEffect((): (() => void) | void => {
     if (!supportsMediaDevices) {
@@ -352,53 +382,6 @@ export function CameraController({ children }: PropsWithChildren): JSX.Element {
     selectedResolution,
     supportsMediaDevices,
   ]);
-
-  useEffect((): (() => void) | void => {
-    if (!supportsMediaDevices) {
-      void setLiveInputStream(null);
-      return undefined;
-    }
-
-    let isCancelled = false;
-    let nextInputStream: MediaStream | null = null;
-
-    async function startLiveInputMetering(): Promise<void> {
-      try {
-        nextInputStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            autoGainControl: true,
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-          video: false,
-        });
-
-        if (isCancelled) {
-          stopMediaStream(nextInputStream);
-          return;
-        }
-
-        liveInputStreamRef.current = nextInputStream;
-        await setLiveInputStream(nextInputStream);
-      } catch {
-        if (isCancelled) {
-          return;
-        }
-
-        liveInputStreamRef.current = null;
-        await setLiveInputStream(null);
-      }
-    }
-
-    void startLiveInputMetering();
-
-    return (): void => {
-      isCancelled = true;
-      void setLiveInputStream(null);
-      stopMediaStream(nextInputStream);
-      liveInputStreamRef.current = null;
-    };
-  }, [setLiveInputStream, supportsMediaDevices]);
 
   const contextValue = useMemo<CameraControllerContextValue>(
     (): CameraControllerContextValue => ({

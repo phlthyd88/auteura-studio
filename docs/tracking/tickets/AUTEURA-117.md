@@ -1,6 +1,6 @@
 # AUTEURA-117: Explicitly release WebGL contexts on final disposal
 
-- Status: `ready`
+- Status: `done`
 - Severity: `high`
 - Release Gate: `pre_scale`
 - Owner: `unassigned`
@@ -22,17 +22,19 @@ Repeated remounts or fallback cycles can accumulate active contexts until the br
 
 ## Acceptance Criteria
 
-- [ ] final renderer disposal explicitly releases the WebGL context when supported
-- [ ] disposal remains safe and idempotent
-- [ ] tests cover repeated create/dispose cycles
+- [x] final renderer disposal explicitly releases the WebGL context when supported
+- [x] disposal remains safe and idempotent
+- [x] tests cover repeated create/dispose cycles
 
 ## Validation
 
 - required automated checks:
   - renderer disposal/context release test
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/engine/__tests__/GLRenderer.test.ts src/engine/__tests__/ResourcePool.test.ts`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: added explicit `WEBGL_lose_context` release on final renderer disposal and covered idempotent repeated shutdown

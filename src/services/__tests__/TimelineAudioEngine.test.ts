@@ -13,6 +13,7 @@ function createMediaItem(id: string): MediaItem {
   const timestamp = 1000;
 
   return {
+    availability: 'available',
     blob: new Blob([id], { type: 'audio/webm' }),
     captureMode: 'recording',
     createdAt: timestamp,

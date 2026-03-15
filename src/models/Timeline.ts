@@ -169,6 +169,13 @@ export interface TimelineProjectRecord {
   readonly updatedAt: number;
 }
 
+export interface TimelineProjectListEntry {
+  readonly createdAt: number;
+  readonly id: string;
+  readonly name: string;
+  readonly updatedAt: number;
+}
+
 export interface TimelineResolvedTransition {
   readonly clipId: string;
   readonly progress: number;

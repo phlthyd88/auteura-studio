@@ -1,13 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDB, type DBSchema } from 'idb';
 import {
   appendChunkedRecordingMediaChunk,
   clearAll,
   createChunkedRecordingMedia,
   deleteMedia,
+  downloadMediaById,
   finalizeChunkedRecordingMedia,
   getAllMedia,
   getMediaById,
+  getMediaPlaybackHandle,
   getMediaStorageStats,
   resetMediaDatabase,
   saveImportedMedia,
@@ -84,6 +86,7 @@ function createMediaItem(overrides: Partial<MediaItem> = {}): MediaItem {
   const timestamp = overrides.timestamp ?? Date.now();
 
   return {
+    availability: overrides.availability ?? 'available',
     blob: overrides.blob ?? new Blob(['auteura-test'], { type: 'video/webm' }),
     captureMode: overrides.captureMode ?? 'recording',
     createdAt: overrides.createdAt ?? timestamp,
@@ -287,6 +290,7 @@ describe('MediaStorageService', (): void => {
     const listedItems = await getAllMedia();
     const resolvedItem = await getMediaById(listedItems[0]!.id);
 
+    expect(listedItems[0]?.availability).toBe('unavailable-linked');
     expect(listedItems[0]?.isAvailable).toBe(false);
     expect(resolvedItem).toBeNull();
   });
@@ -397,6 +401,116 @@ describe('MediaStorageService', (): void => {
     expect(stats.itemCount).toBe(1);
     expect(stats.usageBytes).toBe(listedItems[0]?.sizeBytes ?? 0);
     expect(resolvedItem?.blob.size).toBeGreaterThan(0);
+  });
+
+  it('returns metadata-first playback handles for chunked recordings', async (): Promise<void> => {
+    const createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:chunked-preview');
+    const revokeObjectUrlSpy = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation((): void => undefined);
+
+    class MockMediaSource {
+      addEventListener(): void {}
+    }
+
+    vi.stubGlobal('MediaSource', MockMediaSource);
+
+    await createChunkedRecordingMedia({
+      captureMode: 'recording',
+      createdAt: 100,
+      height: 720,
+      id: 'preview-recording',
+      mimeType: 'video/webm',
+      name: 'preview-recording.webm',
+      origin: 'capture',
+      timestamp: 100,
+      type: 'video',
+      width: 1280,
+    });
+    await appendChunkedRecordingMediaChunk(
+      'preview-recording',
+      0,
+      new Blob(['chunk-a'], { type: 'video/webm' }),
+    );
+    await appendChunkedRecordingMediaChunk(
+      'preview-recording',
+      1,
+      new Blob(['chunk-b'], { type: 'video/webm' }),
+    );
+    await finalizeChunkedRecordingMedia('preview-recording', {
+      durationMs: 2_000,
+      timestamp: 200,
+    });
+
+    const playbackHandle = await getMediaPlaybackHandle('preview-recording');
+
+    expect(playbackHandle).not.toBeNull();
+    expect(playbackHandle?.mediaItem.blob.size).toBe(0);
+    expect(playbackHandle?.sourceUrl).toBe('blob:chunked-preview');
+
+    playbackHandle?.release();
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:chunked-preview');
+
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('streams chunked recording downloads sequentially to the file picker', async (): Promise<void> => {
+    const writtenChunks: Blob[] = [];
+    const createWritable = vi.fn(() => Promise.resolve({
+      close: vi.fn((): Promise<void> => Promise.resolve()),
+      write: vi.fn((data: Blob | BufferSource | string): Promise<void> => {
+        if (data instanceof Blob) {
+          writtenChunks.push(data);
+        }
+        return Promise.resolve();
+      }),
+    }));
+
+    vi.stubGlobal(
+      'showSaveFilePicker',
+      vi.fn(() => Promise.resolve({
+        createWritable,
+      })),
+    );
+
+    await createChunkedRecordingMedia({
+      captureMode: 'recording',
+      createdAt: 100,
+      height: 720,
+      id: 'download-recording',
+      mimeType: 'video/webm',
+      name: 'download-recording.webm',
+      origin: 'capture',
+      timestamp: 100,
+      type: 'video',
+      width: 1280,
+    });
+    await appendChunkedRecordingMediaChunk(
+      'download-recording',
+      0,
+      new Blob(['chunk-a'], { type: 'video/webm' }),
+    );
+    await appendChunkedRecordingMediaChunk(
+      'download-recording',
+      1,
+      new Blob(['chunk-b'], { type: 'video/webm' }),
+    );
+    await finalizeChunkedRecordingMedia('download-recording', {
+      durationMs: 2_000,
+      timestamp: 200,
+    });
+
+    await expect(downloadMediaById('download-recording')).resolves.toBe(true);
+    await expect(Promise.all(writtenChunks.map((chunk: Blob): Promise<string> => chunk.text()))).resolves.toEqual([
+      'chunk-a',
+      'chunk-b',
+    ]);
+
+    vi.unstubAllGlobals();
   });
 
   it('rejects quota-exhausting imports without corrupting the existing library', async (): Promise<void> => {

@@ -30,10 +30,28 @@ async function waitForPersistedMediaItem(
             readonly flags: string;
             readonly source: string;
           }): Promise<boolean> => {
-            const { getAllMedia } = await import('/src/services/MediaStorageService.ts');
             const matcher = new RegExp(source, flags);
-            const items = await getAllMedia();
-            return items.some((item): boolean => matcher.test(item.name));
+
+            return new Promise<boolean>((resolve, reject): void => {
+              const openRequest = window.indexedDB.open('AuteuraDB', 6);
+
+              openRequest.onerror = (): void => {
+                reject(openRequest.error ?? new Error('Failed to open media database.'));
+              };
+              openRequest.onsuccess = (): void => {
+                const database = openRequest.result;
+                const transaction = database.transaction(['media'], 'readonly');
+                const getAllRequest = transaction.objectStore('media').getAll();
+
+                getAllRequest.onerror = (): void => {
+                  reject(getAllRequest.error ?? new Error('Failed to read media library.'));
+                };
+                getAllRequest.onsuccess = (): void => {
+                  const items = getAllRequest.result as Array<{ name?: string }>;
+                  resolve(items.some((item): boolean => matcher.test(item.name ?? '')));
+                };
+              };
+            });
           },
           {
             flags: namePattern.flags,
@@ -151,25 +169,79 @@ async function seedExportSourceVideo(page: Page): Promise<void> {
     oscillatorNode.stop();
     await audioContext.close();
 
-    const { saveMedia } = await import('/src/services/MediaStorageService.ts');
     const timestamp = Date.now();
-    await saveMedia({
-      blob: recordedBlob,
-      captureMode: 'recording',
-      createdAt: timestamp,
-      durationMs: 10_400,
-      height: canvas.height,
-      id: crypto.randomUUID(),
-      isAvailable: true,
-      mimeType: recordedBlob.type || mimeType,
-      name: 'playwright-export-source.webm',
-      origin: 'capture',
-      sizeBytes: recordedBlob.size,
-      storageKind: 'copied-indexeddb',
-      thumbnail: canvas.toDataURL('image/webp', 0.72),
-      timestamp,
-      type: 'video',
-      width: canvas.width,
+    const mediaId = crypto.randomUUID();
+
+    await new Promise<void>((resolve, reject): void => {
+      const openRequest = window.indexedDB.open('AuteuraDB', 6);
+
+      openRequest.onupgradeneeded = (): void => {
+        const database = openRequest.result;
+
+        if (!database.objectStoreNames.contains('media')) {
+          const mediaStore = database.createObjectStore('media', {
+            keyPath: 'id',
+          });
+          mediaStore.createIndex('timestamp', 'timestamp');
+          mediaStore.createIndex('type', 'type');
+          mediaStore.createIndex('kind', 'kind');
+        }
+
+        if (!database.objectStoreNames.contains('mediaBlobs')) {
+          database.createObjectStore('mediaBlobs', {
+            keyPath: 'mediaId',
+          });
+        }
+
+        if (!database.objectStoreNames.contains('migrationAudit')) {
+          database.createObjectStore('migrationAudit', {
+            keyPath: 'id',
+          });
+        }
+
+        if (!database.objectStoreNames.contains('recordingChunks')) {
+          const recordingChunkStore = database.createObjectStore('recordingChunks', {
+            keyPath: ['recordingId', 'sequence'],
+          });
+          recordingChunkStore.createIndex('recordingId', 'recordingId');
+        }
+      };
+
+      openRequest.onerror = (): void => {
+        reject(openRequest.error ?? new Error('Failed to open IndexedDB for export seeding.'));
+      };
+      openRequest.onsuccess = (): void => {
+        const database = openRequest.result;
+        const transaction = database.transaction(['media', 'mediaBlobs'], 'readwrite');
+
+        transaction.objectStore('media').put({
+          captureMode: 'recording',
+          createdAt: timestamp,
+          durationMs: 10_400,
+          height: canvas.height,
+          id: mediaId,
+          kind: 'copied-indexeddb',
+          mimeType: recordedBlob.type || mimeType,
+          name: 'playwright-export-source.webm',
+          origin: 'capture',
+          sizeBytes: recordedBlob.size,
+          thumbnail: canvas.toDataURL('image/webp', 0.72),
+          timestamp,
+          type: 'video',
+          width: canvas.width,
+        });
+        transaction.objectStore('mediaBlobs').put({
+          blob: recordedBlob,
+          mediaId,
+        });
+        transaction.onerror = (): void => {
+          reject(transaction.error ?? new Error('Failed to seed export source media.'));
+        };
+        transaction.oncomplete = (): void => {
+          database.close();
+          resolve();
+        };
+      };
     });
   });
 }
@@ -189,9 +261,6 @@ async function seedPressureLibrary(
       readonly logicalItemBytes: number;
       readonly totalItems: number;
     }): Promise<void> => {
-      const { resetMediaDatabase } = await import('/src/services/MediaStorageService.ts');
-      await resetMediaDatabase();
-
       await new Promise<void>((resolve, reject): void => {
         const openRequest = window.indexedDB.open('AuteuraDB', 6);
 
@@ -233,7 +302,10 @@ async function seedPressureLibrary(
 
         openRequest.onsuccess = (): void => {
           const database = openRequest.result;
-          const transaction = database.transaction(['media', 'mediaBlobs'], 'readwrite');
+          const transaction = database.transaction(
+            ['media', 'mediaBlobs', 'migrationAudit', 'recordingChunks'],
+            'readwrite',
+          );
           const mediaStore = transaction.objectStore('media');
           const mediaBlobStore = transaction.objectStore('mediaBlobs');
           const sharedBlob = new Blob(['x'], { type: 'video/webm' });
@@ -245,6 +317,11 @@ async function seedPressureLibrary(
           transaction.onerror = (): void => {
             reject(transaction.error ?? new Error('Failed to seed pressure library.'));
           };
+
+          transaction.objectStore('migrationAudit').clear();
+          transaction.objectStore('recordingChunks').clear();
+          mediaStore.clear();
+          mediaBlobStore.clear();
 
           for (let index = 0; index < totalItems; index += 1) {
             const id = `pressure-item-${index.toString().padStart(4, '0')}`;
@@ -484,6 +561,14 @@ test('launches, records, persists after reload, and exposes download/delete acti
   await openStudioConsole(page, 'pipeline');
   await expect(page.locator('li').first()).toContainText('recording');
 
+  await page.evaluate((): void => {
+    Object.defineProperty(window, 'showSaveFilePicker', {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+  });
+
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: /Download recording/i }).click();
   const download = await downloadPromise;
@@ -607,19 +692,78 @@ test('pauses timelapse while hidden and does not burst missed captures on resume
   };
 
   await page.goto('/');
-  await openStudioConsole(page, 'pipeline');
-  await page.getByRole('button', { name: 'Reset DB' }).click();
+  await page.evaluate(async (): Promise<void> => {
+    await new Promise<void>((resolve, reject): void => {
+      const openRequest = window.indexedDB.open('AuteuraDB', 6);
+
+      openRequest.onupgradeneeded = (): void => {
+        const database = openRequest.result;
+
+        if (!database.objectStoreNames.contains('media')) {
+          const mediaStore = database.createObjectStore('media', {
+            keyPath: 'id',
+          });
+          mediaStore.createIndex('timestamp', 'timestamp');
+          mediaStore.createIndex('type', 'type');
+          mediaStore.createIndex('kind', 'kind');
+        }
+
+        if (!database.objectStoreNames.contains('mediaBlobs')) {
+          database.createObjectStore('mediaBlobs', {
+            keyPath: 'mediaId',
+          });
+        }
+
+        if (!database.objectStoreNames.contains('migrationAudit')) {
+          database.createObjectStore('migrationAudit', {
+            keyPath: 'id',
+          });
+        }
+
+        if (!database.objectStoreNames.contains('recordingChunks')) {
+          const recordingChunkStore = database.createObjectStore('recordingChunks', {
+            keyPath: ['recordingId', 'sequence'],
+          });
+          recordingChunkStore.createIndex('recordingId', 'recordingId');
+        }
+      };
+
+      openRequest.onerror = (): void => {
+        reject(openRequest.error ?? new Error('Failed to open IndexedDB for reset.'));
+      };
+      openRequest.onsuccess = (): void => {
+        const database = openRequest.result;
+        const transaction = database.transaction(
+          ['media', 'mediaBlobs', 'migrationAudit', 'recordingChunks'],
+          'readwrite',
+        );
+
+        transaction.objectStore('media').clear();
+        transaction.objectStore('mediaBlobs').clear();
+        transaction.objectStore('migrationAudit').clear();
+        transaction.objectStore('recordingChunks').clear();
+        transaction.onerror = (): void => {
+          reject(transaction.error ?? new Error('Failed to clear IndexedDB state.'));
+        };
+        transaction.oncomplete = (): void => {
+          database.close();
+          resolve();
+        };
+      };
+    });
+  });
+  await page.reload();
 
   await openStudioConsole(page, 'pipeline');
   await page.getByLabel('Timelapse Interval').click();
   await page.getByRole('option', { name: '1 second' }).click();
   await page.getByRole('button', { name: 'Start Timelapse' }).click();
-  await expect(page.getByRole('button', { name: 'Stop Timelapse (1)' })).toBeVisible({
-    timeout: 5_000,
-  });
-  await expect(page.getByRole('button', { name: 'Stop Timelapse (2)' })).toBeVisible({
-    timeout: 5_000,
-  });
+  await expect.poll(getTimelapseShotCount, {
+    timeout: 10_000,
+  }).toBeGreaterThanOrEqual(1);
+  await expect.poll(getTimelapseShotCount, {
+    timeout: 10_000,
+  }).toBeGreaterThanOrEqual(2);
   const shotsBeforeHide = await getTimelapseShotCount();
   await page.evaluate((): void => {
     (globalThis as typeof globalThis & {

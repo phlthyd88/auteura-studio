@@ -1,6 +1,6 @@
 # AUTEURA-114: Represent unavailable linked media truthfully
 
-- Status: `ready`
+- Status: `done`
 - Severity: `medium`
 - Release Gate: `pre_scale`
 - Owner: `unassigned`
@@ -22,17 +22,19 @@ The type claims the item is usable media when runtime truth is “metadata only 
 
 ## Acceptance Criteria
 
-- [ ] unavailable linked media has an explicit runtime type or status
-- [ ] UI can distinguish unavailable media from valid empty files
-- [ ] preview/export flows fail fast with a useful recovery path
+- [x] unavailable linked media has an explicit runtime type or status
+- [x] UI can distinguish unavailable media from valid empty files
+- [x] preview/export flows fail fast with a useful recovery path
 
 ## Validation
 
 - required automated checks:
   - unavailable linked media behavior test
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/services/__tests__/MediaStorageService.test.ts src/services/__tests__/TimelineAudioEngine.test.ts src/services/__tests__/WaveformAnalysisService.test.ts`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: added explicit `availability` status to `MediaItem`, marked missing linked files as `unavailable-linked`, and covered the unavailable path in media-storage tests

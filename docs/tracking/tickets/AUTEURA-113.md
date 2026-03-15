@@ -1,6 +1,6 @@
 # AUTEURA-113: Guard async camera device refresh after unmount
 
-- Status: `ready`
+- Status: `done`
 - Severity: `medium`
 - Release Gate: `pre_scale`
 - Owner: `unassigned`
@@ -22,17 +22,19 @@ This causes stale writes and makes lifecycle boundaries less trustworthy during 
 
 ## Acceptance Criteria
 
-- [ ] late device refresh completions are ignored after unmount
-- [ ] no state writes occur from a stale request
-- [ ] hot-swap still updates device state correctly while mounted
+- [x] late device refresh completions are ignored after unmount
+- [x] no state writes occur from a stale request
+- [x] hot-swap still updates device state correctly while mounted
 
 ## Validation
 
 - required automated checks:
   - mount/unmount race test around device refresh
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/controllers/__tests__/CameraController.test.tsx`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: added mounted/request-version guards to `refreshDevices()` and covered mounted/unmounted completion ordering with controller tests

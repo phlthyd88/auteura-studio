@@ -100,6 +100,8 @@ class MockPeerConnection {
 class MockDocument {
   hasMarker = true;
   readonly documentElement = {};
+  visibilityState: 'hidden' | 'visible' = 'visible';
+  private readonly listeners = new Map<string, Set<() => void>>();
 
   querySelector(selector: string): Record<string, never> | null {
     if (selector === 'meta[name="auteura-extension-id"]' && this.hasMarker) {
@@ -107,6 +109,23 @@ class MockDocument {
     }
 
     return null;
+  }
+
+  addEventListener(type: string, listener: () => void): void {
+    const current = this.listeners.get(type) ?? new Set();
+    current.add(listener);
+    this.listeners.set(type, current);
+  }
+
+  removeEventListener(type: string, listener: () => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  setVisibilityState(nextState: 'hidden' | 'visible'): void {
+    this.visibilityState = nextState;
+    this.listeners.get('visibilitychange')?.forEach((listener): void => {
+      listener();
+    });
   }
 }
 
@@ -355,6 +374,7 @@ describe('AuteuraVirtualOutputBridgeService', (): void => {
 
   it('ignores stale heartbeat responses and backs off repeated registration retries', async (): Promise<void> => {
     vi.useFakeTimers();
+    vi.setSystemTime(1700000000000);
     const originalMediaStream = globalThis.MediaStream;
     vi.stubGlobal('MediaStream', MockMediaStream);
 
@@ -370,7 +390,7 @@ describe('AuteuraVirtualOutputBridgeService', (): void => {
 
       const mockWindow = new MockWindow();
       const bridgeService = new AuteuraVirtualOutputBridgeService(virtualOutputService, {
-        now: (): number => 1700000000000,
+        now: (): number => Date.now(),
         windowObject: mockWindow as unknown as Window,
       });
 
@@ -432,6 +452,63 @@ describe('AuteuraVirtualOutputBridgeService', (): void => {
       await vi.advanceTimersByTimeAsync(1);
       const thirdRegisterMessage = mockWindow.postedMessages.at(-1) as Record<string, unknown>;
       expect(thirdRegisterMessage.type).toBe('HOST_REGISTER');
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalMediaStream !== undefined) {
+        vi.stubGlobal('MediaStream', originalMediaStream);
+      }
+    }
+  });
+
+  it('tolerates hidden-tab heartbeat drift without falsely dropping the host', async (): Promise<void> => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1700000000000);
+    const originalMediaStream = globalThis.MediaStream;
+    vi.stubGlobal('MediaStream', MockMediaStream);
+
+    try {
+      const virtualOutputService = new AuteuraVirtualOutputService({
+        captureCanvasStream: (): MediaStream =>
+          new MockMediaStream([new MockMediaStreamTrack('video', 'camera-track')]) as unknown as MediaStream,
+      });
+      virtualOutputService.start({
+        canvas: {} as HTMLCanvasElement,
+        targetFps: 24,
+      });
+
+      const mockWindow = new MockWindow();
+      const bridgeService = new AuteuraVirtualOutputBridgeService(virtualOutputService, {
+        now: (): number => Date.now(),
+        windowObject: mockWindow as unknown as Window,
+      });
+
+      bridgeService.start();
+
+      const registerMessage = mockWindow.postedMessages[0] as Record<string, unknown>;
+      mockWindow.dispatchMessage({
+        __auteura_virtual_output_host_response__: true,
+        hostId: 'host-1',
+        protocol: 'auteura-virtual-output',
+        protocolVersion: 1,
+        sessionId: registerMessage.sessionId,
+        timestamp: Date.now() + 1,
+        type: 'HOST_REGISTER_ACK',
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect((mockWindow.postedMessages.at(-1) as Record<string, unknown>).type).toBe('PING');
+
+      mockWindow.document.setVisibilityState('hidden');
+      await vi.advanceTimersByTimeAsync(45000);
+
+      expect(virtualOutputService.getStatusSnapshot().hostRegistered).toBe(true);
+      expect(virtualOutputService.getStatusSnapshot().lastError).toBeNull();
+
+      mockWindow.document.setVisibilityState('visible');
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect((mockWindow.postedMessages.at(-1) as Record<string, unknown>).type).toBe('PING');
+      expect(virtualOutputService.getStatusSnapshot().hostRegistered).toBe(true);
     } finally {
       vi.unstubAllGlobals();
       if (originalMediaStream !== undefined) {

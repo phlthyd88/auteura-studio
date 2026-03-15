@@ -60,12 +60,10 @@ export function Viewfinder(): JSX.Element {
   const timelineImageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const timelineImageRefCallbacksRef =
     useRef<Map<string, (node: HTMLImageElement | null) => void>>(new Map());
-  const timelineSourceUrlsRef = useRef<Record<string, string>>({});
   const timelineVideoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const timelineVideoRefCallbacksRef =
     useRef<Map<string, (node: HTMLVideoElement | null) => void>>(new Map());
   const [aspectRatio, setAspectRatio] = useState<number>(16 / 9);
-  const [timelineSourceUrls, setTimelineSourceUrls] = useState<Record<string, string>>({});
   const activeSources = timelinePreviewState.activeSources;
   const topLayer = useMemo(
     () => getTopTimelineCompositionLayer(timelinePreviewState.composition),
@@ -135,34 +133,6 @@ export function Viewfinder(): JSX.Element {
     return stream === null ? 'Waiting for input feed' : 'Rendering camera texture to WebGL';
   }, [activeSources, previewSourceMode, stream]);
 
-  useEffect((): (() => void) => {
-    setTimelineSourceUrls((currentUrls: Record<string, string>): Record<string, string> => {
-      const nextUrls: Record<string, string> = {};
-
-      Object.values(activeSources).forEach((source: TimelinePreviewSource): void => {
-        const existingUrl = currentUrls[source.sourceId];
-
-        if (existingUrl !== undefined) {
-          nextUrls[source.sourceId] = existingUrl;
-          return;
-        }
-
-        nextUrls[source.sourceId] = URL.createObjectURL(source.mediaItem.blob);
-      });
-
-      Object.entries(currentUrls).forEach(([sourceId, url]: readonly [string, string]): void => {
-        if (!(sourceId in nextUrls)) {
-          URL.revokeObjectURL(url);
-        }
-      });
-
-      timelineSourceUrlsRef.current = nextUrls;
-      return nextUrls;
-    });
-
-    return (): void => undefined;
-  }, [activeSources]);
-
   useEffect((): void => {
     const activeSourceIds = new Set(Object.keys(activeSources));
 
@@ -177,15 +147,6 @@ export function Viewfinder(): JSX.Element {
       }
     });
   }, [activeSources]);
-
-  useEffect((): (() => void) => {
-    return (): void => {
-      Object.values(timelineSourceUrlsRef.current).forEach((sourceUrl: string): void => {
-        URL.revokeObjectURL(sourceUrl);
-      });
-      timelineSourceUrlsRef.current = {};
-    };
-  }, []);
 
   useEffect((): (() => void) | void => {
     if (previewSourceMode !== 'timeline' || topSource === null) {
@@ -266,17 +227,11 @@ export function Viewfinder(): JSX.Element {
     }
 
     Object.values(activeSources).forEach((source: TimelinePreviewSource): void => {
-      const sourceUrl = timelineSourceUrls[source.sourceId];
-
-      if (sourceUrl === undefined) {
-        return;
-      }
-
       if (source.mediaItem.type === 'image') {
         const imageElement = timelineImageElementsRef.current.get(source.sourceId);
 
-        if (imageElement !== undefined && imageElement.src !== sourceUrl) {
-          imageElement.src = sourceUrl;
+        if (imageElement !== undefined && imageElement.src !== source.sourceUrl) {
+          imageElement.src = source.sourceUrl;
         }
 
         return;
@@ -288,8 +243,8 @@ export function Viewfinder(): JSX.Element {
         return;
       }
 
-      if (videoElement.src !== sourceUrl) {
-        videoElement.src = sourceUrl;
+      if (videoElement.src !== source.sourceUrl) {
+        videoElement.src = source.sourceUrl;
         videoElement.load();
       }
 
@@ -302,7 +257,7 @@ export function Viewfinder(): JSX.Element {
         videoElement.currentTime = nextTimeSeconds;
       }
     });
-  }, [activeSources, timelinePreviewState.mode, timelineSourceUrls]);
+  }, [activeSources, timelinePreviewState.mode]);
 
   return (
     <Stack spacing={2} sx={{ height: '100%', minHeight: 0 }}>

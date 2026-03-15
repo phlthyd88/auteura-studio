@@ -1,6 +1,6 @@
 # AUTEURA-116: Persist and resurface update-ready state
 
-- Status: `ready`
+- Status: `done`
 - Severity: `medium`
 - Release Gate: `pre_scale`
 - Owner: `unassigned`
@@ -22,17 +22,19 @@ Long-lived tabs can keep operating on outdated code after a newer service worker
 
 ## Acceptance Criteria
 
-- [ ] update-ready state survives prompt dismissal
-- [ ] users are reminded again before long-lived stale sessions continue too far
-- [ ] update prompts still respect active recording/capture safety constraints
+- [x] update-ready state survives prompt dismissal
+- [x] users are reminded again before long-lived stale sessions continue too far
+- [x] update prompts still respect active recording/capture safety constraints
 
 ## Validation
 
 - required automated checks:
   - service worker update UI state test
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/components/__tests__/PwaUpdatePrompt.test.tsx`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: added persistent update-ready reminder coverage and closed the ticket

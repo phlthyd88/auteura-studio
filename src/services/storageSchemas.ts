@@ -11,6 +11,7 @@ import {
   type TimelineClipSource,
   type TimelineEnvelopePoint,
   type TimelineProject,
+  type TimelineProjectListEntry,
   type TimelineProjectRecord,
   type TimelineTrack,
   type TimelineTransition,
@@ -35,6 +36,14 @@ export interface PersistedTimelineProjectRecord {
   readonly createdAt: number;
   readonly id: string;
   readonly project: TimelineProject;
+  readonly schemaVersion: number;
+  readonly updatedAt: number;
+}
+
+export interface PersistedTimelineProjectMetadataRecord {
+  readonly createdAt: number;
+  readonly id: string;
+  readonly name: string;
   readonly schemaVersion: number;
   readonly updatedAt: number;
 }
@@ -592,6 +601,50 @@ export function parseTimelineProjectRecord(value: unknown): TimelineProjectRecor
     createdAt,
     id,
     project: parseTimelineProject(record.project),
+    updatedAt,
+  };
+}
+
+export function toPersistedTimelineProjectMetadataRecord(
+  project: TimelineProject,
+): PersistedTimelineProjectMetadataRecord {
+  return {
+    createdAt: project.createdAt,
+    id: project.id,
+    name: project.name,
+    schemaVersion: storageSchemaVersion,
+    updatedAt: project.updatedAt,
+  };
+}
+
+export function parseTimelineProjectMetadataRecord(value: unknown): TimelineProjectListEntry {
+  const record = asRecord(value);
+
+  if (record === null) {
+    throw new Error('Stored timeline project metadata record is invalid.');
+  }
+
+  if ('schemaVersion' in record) {
+    const schemaVersion = asNumber(record.schemaVersion);
+
+    if (schemaVersion === null || schemaVersion > storageSchemaVersion) {
+      throw new Error('Stored timeline project metadata schema is unsupported.');
+    }
+  }
+
+  const id = asString(record.id);
+  const name = asString(record.name);
+  const createdAt = asNumber(record.createdAt);
+  const updatedAt = asNumber(record.updatedAt);
+
+  if (id === null || name === null || createdAt === null || updatedAt === null) {
+    throw new Error('Stored timeline project metadata record is missing required fields.');
+  }
+
+  return {
+    createdAt,
+    id,
+    name,
     updatedAt,
   };
 }

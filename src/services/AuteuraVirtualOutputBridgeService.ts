@@ -18,6 +18,7 @@ const initialRegistrationRetryDelayMs = 1500;
 const maxRegistrationRetryDelayMs = 10000;
 const heartbeatIntervalMs = 5000;
 const heartbeatTimeoutMs = 15000;
+const throttledHeartbeatDriftGraceMs = heartbeatTimeoutMs;
 const maxInboundMessageAgeMs = 60_000;
 
 interface BridgePeerSession {
@@ -72,11 +73,12 @@ export class AuteuraVirtualOutputBridgeService {
   private observer: MutationObserver | null = null;
   private isStarted = false;
   private heartbeatIntervalId: number | null = null;
-  private heartbeatTimeoutId: number | null = null;
+  private heartbeatDeadlineAt: number | null = null;
   private pendingHeartbeatSessionId: string | null = null;
   private pendingRegistrationSessionId: string | null = null;
   private registrationRetryDelayMs = initialRegistrationRetryDelayMs;
   private registrationRetryTimeoutId: number | null = null;
+  private lastHeartbeatPollAt: number | null = null;
 
   constructor(
     virtualOutputService: AuteuraVirtualOutputService,
@@ -97,6 +99,7 @@ export class AuteuraVirtualOutputBridgeService {
     this.isStarted = true;
     this.detectExtension();
     this.windowObject.addEventListener('message', this.handleWindowMessage);
+    this.windowObject.document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
     const MutationObserverCtor = (
       this.windowObject as Window & {
@@ -126,6 +129,7 @@ export class AuteuraVirtualOutputBridgeService {
     this.observer?.disconnect();
     this.observer = null;
     this.windowObject.removeEventListener('message', this.handleWindowMessage);
+    this.windowObject.document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.clearHeartbeatLoop();
     this.clearRegistrationRetry();
     this.closeAllPeerSessions();
@@ -179,7 +183,7 @@ export class AuteuraVirtualOutputBridgeService {
         this.pendingRegistrationSessionId = null;
         this.registrationRetryDelayMs = initialRegistrationRetryDelayMs;
         this.clearRegistrationRetry();
-        this.clearHeartbeatTimeout();
+        this.clearPendingHeartbeat();
         return;
       case 'HANDSHAKE_INIT':
         await this.handleHandshakeInit(message.clientId, message.sessionId, message.request);
@@ -213,7 +217,7 @@ export class AuteuraVirtualOutputBridgeService {
 
         this.pendingHeartbeatSessionId = null;
         this.registrationRetryDelayMs = initialRegistrationRetryDelayMs;
-        this.clearHeartbeatTimeout();
+        this.clearPendingHeartbeat();
         return;
       default:
         return;
@@ -231,10 +235,9 @@ export class AuteuraVirtualOutputBridgeService {
     }
 
     this.pendingRegistrationSessionId = null;
-    this.pendingHeartbeatSessionId = null;
+    this.clearPendingHeartbeat();
     this.registrationRetryDelayMs = initialRegistrationRetryDelayMs;
     this.clearRegistrationRetry();
-    this.clearHeartbeatTimeout();
     this.closeAllPeerSessions();
   }
 
@@ -270,24 +273,52 @@ export class AuteuraVirtualOutputBridgeService {
       return;
     }
 
+    this.lastHeartbeatPollAt = this.now();
     this.heartbeatIntervalId = this.windowObject.setInterval((): void => {
+      const currentTime = this.now();
       const status = this.virtualOutputService.getStatusSnapshot();
+
+      const previousPollAt = this.lastHeartbeatPollAt;
+      this.lastHeartbeatPollAt = currentTime;
+
       if (!this.isStarted || !status.extensionDetected || !status.hostRegistered) {
+        this.clearPendingHeartbeat();
         return;
       }
 
+      if (this.windowObject.document.visibilityState === 'hidden') {
+        this.clearPendingHeartbeat();
+        return;
+      }
+
+      if (
+        previousPollAt !== null &&
+        currentTime - previousPollAt > heartbeatIntervalMs + throttledHeartbeatDriftGraceMs
+      ) {
+        this.clearPendingHeartbeat();
+      }
+
       if (this.pendingHeartbeatSessionId !== null) {
+        if (this.heartbeatDeadlineAt !== null && currentTime >= this.heartbeatDeadlineAt) {
+          this.clearPendingHeartbeat();
+          this.virtualOutputService.reportHostRegistration(false);
+          this.virtualOutputService.reportError(
+            'Auteura browser-camera bridge heartbeat timed out.',
+          );
+          this.closeAllPeerSessions();
+          this.scheduleRegistrationRetry();
+        }
         return;
       }
 
       const sessionId = `ping-${crypto.randomUUID()}`;
       this.pendingHeartbeatSessionId = sessionId;
+      this.heartbeatDeadlineAt = currentTime + heartbeatTimeoutMs;
       this.postHostMessage({
-        ...createVirtualOutputMessageEnvelope('PING', sessionId, this.now()),
+        ...createVirtualOutputMessageEnvelope('PING', sessionId, currentTime),
         actorId: this.hostId,
         type: 'PING',
       });
-      this.scheduleHeartbeatTimeout();
     }, heartbeatIntervalMs);
   }
 
@@ -297,25 +328,13 @@ export class AuteuraVirtualOutputBridgeService {
       this.heartbeatIntervalId = null;
     }
 
-    this.clearHeartbeatTimeout();
+    this.clearPendingHeartbeat();
+    this.lastHeartbeatPollAt = null;
   }
 
-  private scheduleHeartbeatTimeout(): void {
-    this.clearHeartbeatTimeout();
-    this.heartbeatTimeoutId = this.windowObject.setTimeout((): void => {
-      this.pendingHeartbeatSessionId = null;
-      this.virtualOutputService.reportHostRegistration(false);
-      this.virtualOutputService.reportError('Auteura browser-camera bridge heartbeat timed out.');
-      this.closeAllPeerSessions();
-      this.scheduleRegistrationRetry();
-    }, heartbeatTimeoutMs);
-  }
-
-  private clearHeartbeatTimeout(): void {
-    if (this.heartbeatTimeoutId !== null) {
-      this.windowObject.clearTimeout(this.heartbeatTimeoutId);
-      this.heartbeatTimeoutId = null;
-    }
+  private clearPendingHeartbeat(): void {
+    this.pendingHeartbeatSessionId = null;
+    this.heartbeatDeadlineAt = null;
   }
 
   private scheduleRegistrationRetry(): void {
@@ -343,6 +362,26 @@ export class AuteuraVirtualOutputBridgeService {
       this.registrationRetryTimeoutId = null;
     }
   }
+
+  private readonly handleVisibilityChange = (): void => {
+    if (!this.isStarted) {
+      return;
+    }
+
+    if (this.windowObject.document.visibilityState === 'hidden') {
+      this.clearPendingHeartbeat();
+      return;
+    }
+
+    this.lastHeartbeatPollAt = this.now();
+
+    if (
+      this.virtualOutputService.getStatusSnapshot().extensionDetected &&
+      !this.virtualOutputService.getStatusSnapshot().hostRegistered
+    ) {
+      this.scheduleRegistrationRetry();
+    }
+  };
 
   private async handleHandshakeInit(
     clientId: string,

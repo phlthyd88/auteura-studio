@@ -1,6 +1,6 @@
 # AUTEURA-112: Make browser-camera heartbeat resilient to timer throttling
 
-- Status: `ready`
+- Status: `done`
 - Severity: `high`
 - Release Gate: `pre_scale`
 - Owner: `unassigned`
@@ -38,9 +38,9 @@ The bridge can declare the host offline even when the underlying extension and p
 
 ## Acceptance Criteria
 
-- [ ] liveness logic tolerates timer drift and background throttling
-- [ ] sleep/wake does not trigger false offline state in normal cases
-- [ ] disconnect state remains truthful when the host is genuinely gone
+- [x] liveness logic tolerates timer drift and background throttling
+- [x] sleep/wake does not trigger false offline state in normal cases
+- [x] disconnect state remains truthful when the host is genuinely gone
 
 ## Validation
 
@@ -49,8 +49,10 @@ The bridge can declare the host offline even when the underlying extension and p
 - required manual/runtime checks:
   - hidden-tab and sleep/wake smoke test
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/services/__tests__/AuteuraVirtualOutputBridgeService.test.ts src/services/__tests__/BrowserCameraPageShim.test.ts src/services/__tests__/BrowserCameraExtension.test.ts`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: replaced timeout-based heartbeat failure detection with deadline-based polling plus visibility-aware suspension, and added hidden-tab drift coverage

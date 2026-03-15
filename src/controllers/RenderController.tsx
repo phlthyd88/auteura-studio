@@ -685,6 +685,7 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
 
   useEffect((): (() => void) | void => {
     const canvasElement = canvasRef.current;
+    const maxConsecutiveRenderRecoveryAttempts = 2;
 
     if (canvasElement === null) {
       return undefined;
@@ -692,6 +693,7 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
 
     const renderCanvasElement = canvasElement;
     let isDisposed = false;
+    let consecutiveRenderFailureCount = 0;
 
     function cancelRenderLoop(): void {
       if (animationFrameRef.current !== null) {
@@ -705,15 +707,29 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       rendererRef.current = null;
     }
 
+    function syncRendererDiagnostics(nextDiagnostics: WebglDiagnostics): void {
+      setRendererError(
+        nextDiagnostics.backend === 'webgl' ? null : nextDiagnostics.message,
+      );
+      setWebglDiagnostics((currentDiagnostics: WebglDiagnostics): WebglDiagnostics =>
+        currentDiagnostics.backend === nextDiagnostics.backend &&
+        currentDiagnostics.message === nextDiagnostics.message &&
+        currentDiagnostics.apiExposed === nextDiagnostics.apiExposed &&
+        currentDiagnostics.webglContextAvailable === nextDiagnostics.webglContextAvailable &&
+        currentDiagnostics.experimentalContextAvailable === nextDiagnostics.experimentalContextAvailable
+          ? currentDiagnostics
+          : nextDiagnostics,
+      );
+    }
+
     function initializeRenderer(): boolean {
       try {
         destroyRenderer();
         const nextRenderer = createRenderer(renderCanvasElement);
         nextRenderer.initialize();
         rendererRef.current = nextRenderer;
-        const diagnostics = nextRenderer.getDiagnostics();
-        setRendererError(diagnostics.backend === 'webgl' ? null : diagnostics.message);
-        setWebglDiagnostics(diagnostics);
+        consecutiveRenderFailureCount = 0;
+        syncRendererDiagnostics(nextRenderer.getDiagnostics());
         return true;
       } catch (initializationError: unknown) {
         destroyRenderer();
@@ -782,10 +798,22 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
           timeSeconds: performance.now() / 1000,
           transform: transformRef.current,
         }, compositionAdapterRef.current);
+        consecutiveRenderFailureCount = 0;
+        syncRendererDiagnostics(rendererRef.current?.getDiagnostics() ?? defaultWebglDiagnostics);
         reportWebglFrameTimeRef.current(Math.max(0, performance.now() - frameStartMs));
         setFboMemoryUsageBytesRef.current(rendererRef.current?.getMemoryUsageBytes() ?? 0);
       } catch (renderError: unknown) {
+        consecutiveRenderFailureCount += 1;
+
+        if (
+          consecutiveRenderFailureCount <= maxConsecutiveRenderRecoveryAttempts &&
+          initializeRenderer()
+        ) {
+          return;
+        }
+
         cancelRenderLoop();
+        syncRendererDiagnostics(rendererRef.current?.getDiagnostics() ?? defaultWebglDiagnostics);
         setRendererError(
           renderError instanceof Error
             ? renderError.message

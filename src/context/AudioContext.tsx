@@ -47,16 +47,29 @@ export interface AudioContextValue {
   readonly destinationStream: MediaStream | null;
   readonly timelineOutputNode: GainNode | null;
   ensureAudioContext: () => Promise<AudioContext | null>;
-  setLiveInputStream: (stream: MediaStream | null) => Promise<void>;
+  releaseLiveInputStream: (ownerId: string) => Promise<void>;
+  requestLiveInputStream: (ownerId: string) => Promise<boolean>;
 }
 
 const AudioContextState = createContext<AudioContextValue | null>(null);
+
+function stopMediaStream(stream: MediaStream | null): void {
+  if (stream === null) {
+    return;
+  }
+
+  stream.getTracks().forEach((track: MediaStreamTrack): void => {
+    track.stop();
+  });
+}
 
 export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
   const audioContextRef = useRef<AudioContext | null>(null);
   const destinationNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const meterServiceRef = useRef<AudioMeterService | null>(null);
   const liveInputStreamRef = useRef<MediaStream | null>(null);
+  const liveInputOwnersRef = useRef<Set<string>>(new Set<string>());
+  const liveInputSyncRef = useRef<Promise<boolean>>(Promise.resolve(false));
   const [audioContextState, setAudioContextState] = useState<AudioContext | null>(null);
   const [audioMeters, setAudioMeters] = useState<AudioMeterCollectionSnapshot>(defaultAudioMeters);
   const [destinationStreamState, setDestinationStreamState] = useState<MediaStream | null>(null);
@@ -92,7 +105,7 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
     return nextAudioContext;
   }, []);
 
-  const setLiveInputStream = useCallback(
+  const applyLiveInputStream = useCallback(
     async (stream: MediaStream | null): Promise<void> => {
       liveInputStreamRef.current = stream;
 
@@ -114,6 +127,84 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
       );
     },
     [ensureAudioContext],
+  );
+
+  const syncLiveInputStream = useCallback(async (): Promise<boolean> => {
+    if (liveInputOwnersRef.current.size === 0) {
+      const currentLiveInputStream = liveInputStreamRef.current;
+      await applyLiveInputStream(null);
+      stopMediaStream(currentLiveInputStream);
+      liveInputStreamRef.current = null;
+      return false;
+    }
+
+    const currentLiveInputStream = liveInputStreamRef.current;
+    const hasLiveAudioTrack = currentLiveInputStream?.getAudioTracks().some(
+      (track: MediaStreamTrack): boolean => track.readyState === 'live',
+    );
+
+    if (hasLiveAudioTrack) {
+      await applyLiveInputStream(currentLiveInputStream);
+      return true;
+    }
+
+    if (
+      typeof navigator === 'undefined' ||
+      typeof navigator.mediaDevices === 'undefined' ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function'
+    ) {
+      await applyLiveInputStream(null);
+      return false;
+    }
+
+    try {
+      const nextLiveInputStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+        video: false,
+      });
+
+      if (liveInputOwnersRef.current.size === 0) {
+        stopMediaStream(nextLiveInputStream);
+        await applyLiveInputStream(null);
+        return false;
+      }
+
+      stopMediaStream(currentLiveInputStream);
+      await applyLiveInputStream(nextLiveInputStream);
+      return true;
+    } catch {
+      stopMediaStream(currentLiveInputStream);
+      await applyLiveInputStream(null);
+      return false;
+    }
+  }, [applyLiveInputStream]);
+
+  const queueLiveInputSync = useCallback(async (): Promise<boolean> => {
+    liveInputSyncRef.current = liveInputSyncRef.current
+      .catch((): boolean => false)
+      .then(async (): Promise<boolean> => syncLiveInputStream());
+
+    return liveInputSyncRef.current;
+  }, [syncLiveInputStream]);
+
+  const requestLiveInputStream = useCallback(
+    async (ownerId: string): Promise<boolean> => {
+      liveInputOwnersRef.current.add(ownerId);
+      return queueLiveInputSync();
+    },
+    [queueLiveInputSync],
+  );
+
+  const releaseLiveInputStream = useCallback(
+    async (ownerId: string): Promise<void> => {
+      liveInputOwnersRef.current.delete(ownerId);
+      await queueLiveInputSync();
+    },
+    [queueLiveInputSync],
   );
 
   useEffect((): (() => void) | void => {
@@ -138,6 +229,8 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
   }, [audioContextState]);
 
   useEffect((): (() => void) => {
+    const liveInputOwners = liveInputOwnersRef.current;
+
     return (): void => {
       const currentAudioContext = audioContextRef.current;
 
@@ -149,6 +242,8 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
       }
 
       destinationNodeRef.current = null;
+      liveInputOwners.clear();
+      stopMediaStream(liveInputStreamRef.current);
       liveInputStreamRef.current = null;
     };
   }, []);
@@ -160,7 +255,8 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
       destinationNode: destinationNodeRef.current,
       destinationStream: destinationStreamState,
       ensureAudioContext,
-      setLiveInputStream,
+      releaseLiveInputStream,
+      requestLiveInputStream,
       timelineOutputNode: timelineOutputNodeState,
     }),
     [
@@ -168,7 +264,8 @@ export function AudioProvider({ children }: PropsWithChildren): JSX.Element {
       audioMeters,
       destinationStreamState,
       ensureAudioContext,
-      setLiveInputStream,
+      releaseLiveInputStream,
+      requestLiveInputStream,
       timelineOutputNodeState,
     ],
   );

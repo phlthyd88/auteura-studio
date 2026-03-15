@@ -26,6 +26,7 @@ export class GLRenderer {
   private context: WebGLRenderingContext | null = null;
   private diagnostics: GLRendererDiagnostics = defaultDiagnostics;
   private fallbackContext: CanvasRenderingContext2D | null = null;
+  private isDisposed = false;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -47,8 +48,16 @@ export class GLRenderer {
   }
 
   dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+
+    this.isDisposed = true;
+
     if (this.context !== null) {
-      this.pipeline.dispose(this.context);
+      const activeContext = this.context;
+      this.pipeline.dispose(activeContext);
+      activeContext.getExtension('WEBGL_lose_context')?.loseContext?.();
       this.context = null;
     }
 
@@ -56,6 +65,7 @@ export class GLRenderer {
   }
 
   initialize(): void {
+    this.isDisposed = false;
     const nextContextResult = getWebglContext(this.canvas, this.contextOptions);
     this.diagnostics = {
       ...defaultDiagnostics,
@@ -145,7 +155,26 @@ export class GLRenderer {
       return;
     }
 
-    this.pipeline.render(this.context, sourceElement, frameState, compositionAdapter);
+    try {
+      this.pipeline.render(this.context, sourceElement, frameState, compositionAdapter);
+    } catch (renderError: unknown) {
+      if (this.context !== null) {
+        this.pipeline.dispose(this.context);
+      }
+      this.context = null;
+
+      if (
+        this.initializeCanvasFallback(
+          'WebGL preview failed during rendering. Falling back to 2D preview.',
+          renderError,
+        )
+      ) {
+        this.renderFallbackFrame(sourceElement, frameState);
+        return;
+      }
+
+      throw renderError;
+    }
   }
 
   private resizeToDisplaySize(qualityScale = 1): void {

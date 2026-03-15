@@ -6,11 +6,14 @@ import {
 } from 'idb';
 import {
   type TimelineProject,
-  type TimelineProjectRecord,
+  type TimelineProjectListEntry,
 } from '../models/Timeline';
 import {
+  parseTimelineProjectMetadataRecord,
   parseTimelineProjectRecord,
+  toPersistedTimelineProjectMetadataRecord,
   toPersistedTimelineProjectRecord,
+  type PersistedTimelineProjectMetadataRecord,
   type PersistedTimelineProjectRecord,
 } from './storageSchemas';
 import {
@@ -19,6 +22,13 @@ import {
 } from './AppCompatibilityService';
 
 interface TimelineProjectDatabaseSchema extends DBSchema {
+  projectMetadata: {
+    indexes: {
+      updatedAt: number;
+    };
+    key: string;
+    value: PersistedTimelineProjectMetadataRecord;
+  };
   projects: {
     indexes: {
       updatedAt: number;
@@ -29,10 +39,53 @@ interface TimelineProjectDatabaseSchema extends DBSchema {
 }
 
 const databaseName = 'AuteuraTimelineDB';
-const databaseVersion = 1;
+const databaseVersion = 2;
+const projectMetadataStoreName = 'projectMetadata';
 const projectsStoreName = 'projects';
 
 let databasePromise: Promise<IDBPDatabase<TimelineProjectDatabaseSchema>> | null = null;
+let projectMetadataBackfillPromise: Promise<void> | null = null;
+
+async function ensureProjectMetadataBackfill(
+  database: IDBPDatabase<TimelineProjectDatabaseSchema>,
+): Promise<void> {
+  if (projectMetadataBackfillPromise !== null) {
+    return projectMetadataBackfillPromise;
+  }
+
+  projectMetadataBackfillPromise = (async (): Promise<void> => {
+    const existingMetadataCount = await database.count(projectMetadataStoreName);
+
+    if (existingMetadataCount > 0) {
+      return;
+    }
+
+    const projectRecords = await database.getAll(projectsStoreName);
+
+    if (projectRecords.length === 0) {
+      return;
+    }
+
+    const transaction = database.transaction(projectMetadataStoreName, 'readwrite');
+
+    for (const record of projectRecords) {
+      try {
+        const parsedRecord = parseTimelineProjectRecord(record);
+        await transaction.store.put(
+          toPersistedTimelineProjectMetadataRecord(parsedRecord.project),
+        );
+      } catch {
+        // Ignore malformed legacy records during metadata backfill.
+      }
+    }
+
+    await transaction.done;
+  })().finally((): void => {
+    projectMetadataBackfillPromise = null;
+  });
+
+  return projectMetadataBackfillPromise;
+}
 
 function getProjectDatabase(): Promise<IDBPDatabase<TimelineProjectDatabaseSchema>> {
   if (databasePromise === null) {
@@ -54,7 +107,6 @@ function getProjectDatabase(): Promise<IDBPDatabase<TimelineProjectDatabaseSchem
             keyPath: 'id',
           });
           store.createIndex('updatedAt', 'updatedAt');
-          return;
         }
 
         const store = transaction.objectStore(projectsStoreName);
@@ -62,22 +114,46 @@ function getProjectDatabase(): Promise<IDBPDatabase<TimelineProjectDatabaseSchem
         if (!store.indexNames.contains('updatedAt')) {
           store.createIndex('updatedAt', 'updatedAt');
         }
+
+        if (!database.objectStoreNames.contains(projectMetadataStoreName)) {
+          const metadataStore = database.createObjectStore(projectMetadataStoreName, {
+            keyPath: 'id',
+          });
+          metadataStore.createIndex('updatedAt', 'updatedAt');
+        } else {
+          const metadataStore = transaction.objectStore(projectMetadataStoreName);
+
+          if (!metadataStore.indexNames.contains('updatedAt')) {
+            metadataStore.createIndex('updatedAt', 'updatedAt');
+          }
+        }
       },
     }).catch((error: unknown): never => {
       databasePromise = null;
       throw error instanceof Error
         ? error
         : new Error('Failed to initialize the timeline project database.');
+    }).then(async (database): Promise<IDBPDatabase<TimelineProjectDatabaseSchema>> => {
+      await ensureProjectMetadataBackfill(database);
+      return database;
     });
   }
 
   return databasePromise;
 }
 
-export async function saveProject(project: TimelineProjectRecord['project']): Promise<void> {
+export async function saveProject(project: TimelineProject): Promise<void> {
   assertStorageWriteCompatible();
   const database = await getProjectDatabase();
-  await database.put(projectsStoreName, toPersistedTimelineProjectRecord(project));
+  const transaction = database.transaction(
+    [projectsStoreName, projectMetadataStoreName],
+    'readwrite',
+  );
+  await transaction.objectStore(projectsStoreName).put(toPersistedTimelineProjectRecord(project));
+  await transaction.objectStore(projectMetadataStoreName).put(
+    toPersistedTimelineProjectMetadataRecord(project),
+  );
+  await transaction.done;
   markCurrentClientWrite();
 }
 
@@ -94,52 +170,37 @@ export async function getProject(projectId: string): Promise<TimelineProject | n
 
 export async function getLatestProject(): Promise<TimelineProject | null> {
   const database = await getProjectDatabase();
-  const transaction = database.transaction(projectsStoreName, 'readonly');
+  const transaction = database.transaction(projectMetadataStoreName, 'readonly');
   const index = transaction.store.index('updatedAt');
-  const records = await index.getAll();
+  const metadataRecord = await index.openCursor(null, 'prev').then(
+    (cursor): PersistedTimelineProjectMetadataRecord | undefined => cursor?.value,
+  );
   await transaction.done;
 
-  const parsedRecords = records
-    .map((record: PersistedTimelineProjectRecord): TimelineProjectRecord | null => {
-      try {
-        return parseTimelineProjectRecord(record);
-      } catch {
-        return null;
-      }
-    })
-    .filter(
-      (record: TimelineProjectRecord | null): record is TimelineProjectRecord => record !== null,
-    );
-
-  if (parsedRecords.length === 0) {
+  if (metadataRecord === undefined) {
     return null;
   }
 
-  const latestRecord = parsedRecords.sort(
-    (left: TimelineProjectRecord, right: TimelineProjectRecord): number =>
-      right.updatedAt - left.updatedAt,
-  )[0];
-
-  return latestRecord?.project ?? null;
+  return getProject(metadataRecord.id);
 }
 
-export async function listProjects(): Promise<readonly TimelineProjectRecord[]> {
+export async function listProjects(): Promise<readonly TimelineProjectListEntry[]> {
   const database = await getProjectDatabase();
-  const records = await database.getAll(projectsStoreName);
+  const records = await database.getAll(projectMetadataStoreName);
 
   return records
-    .map((record: PersistedTimelineProjectRecord): TimelineProjectRecord | null => {
+    .map((record: PersistedTimelineProjectMetadataRecord): TimelineProjectListEntry | null => {
       try {
-        return parseTimelineProjectRecord(record);
+        return parseTimelineProjectMetadataRecord(record);
       } catch {
         return null;
       }
     })
     .filter(
-      (record: TimelineProjectRecord | null): record is TimelineProjectRecord => record !== null,
+      (record: TimelineProjectListEntry | null): record is TimelineProjectListEntry => record !== null,
     )
     .sort(
-    (left: TimelineProjectRecord, right: TimelineProjectRecord): number =>
+    (left: TimelineProjectListEntry, right: TimelineProjectListEntry): number =>
       right.updatedAt - left.updatedAt,
   );
 }
@@ -147,13 +208,20 @@ export async function listProjects(): Promise<readonly TimelineProjectRecord[]> 
 export async function deleteProject(projectId: string): Promise<void> {
   assertStorageWriteCompatible();
   const database = await getProjectDatabase();
-  await database.delete(projectsStoreName, projectId);
+  const transaction = database.transaction(
+    [projectsStoreName, projectMetadataStoreName],
+    'readwrite',
+  );
+  await transaction.objectStore(projectsStoreName).delete(projectId);
+  await transaction.objectStore(projectMetadataStoreName).delete(projectId);
+  await transaction.done;
   markCurrentClientWrite();
 }
 
 export async function resetProjectDatabase(): Promise<void> {
   const currentDatabasePromise = databasePromise;
   databasePromise = null;
+  projectMetadataBackfillPromise = null;
 
   if (currentDatabasePromise !== null) {
     try {

@@ -1,6 +1,6 @@
 # AUTEURA-108: Lazy mic acquisition and lifecycle ownership
 
-- Status: `ready`
+- Status: `done`
 - Severity: `critical`
 - Release Gate: `release_blocker`
 - Owner: `unassigned`
@@ -61,8 +61,10 @@ Always-on mic capture is a privacy, battery, and device-contention problem. It a
   - verify mic indicator turns off after release
   - verify reacquisition works before recording
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `./node_modules/.bin/vitest run /home/jlf88/auteura/src/context/__tests__/AudioContext.test.tsx /home/jlf88/auteura/src/services/__tests__/MediaStorageService.test.ts /home/jlf88/auteura/src/workers/__tests__/VisionWorkerRuntime.test.ts /home/jlf88/auteura/src/engine/__tests__/GLRenderer.test.ts`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: closed after moving live input acquisition to explicit audio-provider leases and removing camera-controller-owned mic capture

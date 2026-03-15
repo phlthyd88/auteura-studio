@@ -440,7 +440,7 @@ export function TimelinePanel(): JSX.Element {
                 selected={projectRecord.id === project.id}
               >
                 <ListItemText
-                  primary={projectRecord.project.name}
+                  primary={projectRecord.name}
                   secondary={new Date(projectRecord.updatedAt).toLocaleString()}
                 />
                 <IconButton

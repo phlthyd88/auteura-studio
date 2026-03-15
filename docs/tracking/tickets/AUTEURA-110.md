@@ -1,6 +1,6 @@
 # AUTEURA-110: Stop strict media access from hydrating full large assets
 
-- Status: `ready`
+- Status: `done`
 - Severity: `high`
 - Release Gate: `release_blocker`
 - Owner: `unassigned`
@@ -41,9 +41,9 @@ Metadata-first listing fixed one OOM class, but user-facing large-asset actions 
 
 ## Acceptance Criteria
 
-- [ ] preview and download paths do not require full-blob hydration for large assets
-- [ ] chunked recordings can be consumed via stream, slice, or object URL strategy with bounded memory
-- [ ] existing metadata-first list behavior remains intact
+- [x] preview and download paths do not require full-blob hydration for large assets
+- [x] chunked recordings can be consumed via stream, slice, or object URL strategy with bounded memory
+- [x] existing metadata-first list behavior remains intact
 
 ## Implementation Notes
 
@@ -57,8 +57,11 @@ Metadata-first listing fixed one OOM class, but user-facing large-asset actions 
 - required manual/runtime checks:
   - open and preview a very large recording without heap spike
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/services/__tests__/MediaStorageService.test.ts src/services/__tests__/TimelineExportService.test.ts`
+  - `playwright test e2e/critical-path.spec.ts -g "exports a WebM timeline with a multi-segment playable source"`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: replaced blob-hydrating preview/export source reads with playback handles, switched chunked preview/download reads to sequential chunk access, and validated with focused unit/browser coverage

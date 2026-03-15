@@ -10,7 +10,10 @@ import {
 } from 'react';
 import type { MediaItem } from '../services/MediaStorageService';
 import { useAudioContext } from '../context/AudioContext';
-import { getMediaById } from '../services/MediaStorageService';
+import {
+  getMediaPlaybackHandle,
+  type MediaPlaybackHandle,
+} from '../services/MediaStorageService';
 import {
   calculateProjectDuration,
   clampTimelinePlayhead,
@@ -26,7 +29,7 @@ import {
   type TimelineEnvelopePoint,
   type TimelineHistoryState,
   type TimelineProject,
-  type TimelineProjectRecord,
+  type TimelineProjectListEntry,
   type TimelineTrack,
   type TimelineTrackType,
 } from '../models/Timeline';
@@ -68,7 +71,7 @@ import {
   pushTimelineHistoryState,
 } from '../services/TimelineHistoryService';
 import {
-  exportTimelineToMediaItem,
+  exportTimelineToStoredMedia,
   type TimelineExportProgress,
 } from '../services/TimelineExportService';
 import { TimelineAudioEngine } from '../services/TimelineAudioEngine';
@@ -77,7 +80,6 @@ import {
   type TimelinePreviewSource,
   type TimelinePreviewMode,
 } from '../services/TimelinePreviewStore';
-import { saveMedia } from '../services/MediaStorageService';
 import { getTopTimelineCompositionLayer } from '../types/compositor';
 
 type TimelineTransportState = 'paused' | 'playing' | 'stopped';
@@ -110,7 +112,7 @@ interface TimelineControllerContextValue {
   readonly playheadMs: number;
   readonly previewMode: TimelinePreviewMode;
   readonly project: TimelineProject;
-  readonly projectList: readonly TimelineProjectRecord[];
+  readonly projectList: readonly TimelineProjectListEntry[];
   readonly selectedClipId: string | null;
   readonly selectedClip: TimelineClip | null;
   readonly selectedTrackId: string | null;
@@ -282,7 +284,7 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
   const audioEngineRef = useRef<TimelineAudioEngine | null>(null);
   const exportAbortControllerRef = useRef<AbortController | null>(null);
   const packageAbortControllerRef = useRef<AbortController | null>(null);
-  const previewSourceCacheRef = useRef<Map<string, MediaItem | null>>(new Map());
+  const previewSourceCacheRef = useRef<Map<string, MediaPlaybackHandle | null>>(new Map());
   const previewSourceRequestVersionRef = useRef<number>(0);
   const previewSourceRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
   const transportSessionRef = useRef<TimelineTransportSession | null>(null);
@@ -304,7 +306,7 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [playheadMsState, setPlayheadMsState] = useState<number>(0);
-  const [projectList, setProjectList] = useState<readonly TimelineProjectRecord[]>([]);
+  const [projectList, setProjectList] = useState<readonly TimelineProjectListEntry[]>([]);
   const [previewMode, setPreviewModeState] = useState<TimelinePreviewMode>('live');
   const [transportClockSource, setTransportClockSource] =
     useState<TimelineTransportClockSource>('system-fallback');
@@ -521,6 +523,9 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
       packageAbortControllerRef.current?.abort();
       packageAbortControllerRef.current = null;
       previewSourceRequests.clear();
+      previewSourceCache.forEach((mediaHandle: MediaPlaybackHandle | null): void => {
+        mediaHandle?.release();
+      });
       previewSourceCache.clear();
     };
   }, [closeTransportSession, stopAnimationFrameLoop]);
@@ -560,17 +565,18 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
           sourceMap: Record<string, TimelinePreviewSource>,
           layer,
         ): Record<string, TimelinePreviewSource> => {
-          const mediaItem = previewSourceCacheRef.current.get(layer.sourceId);
+          const mediaHandle = previewSourceCacheRef.current.get(layer.sourceId);
 
-          if (mediaItem === undefined || mediaItem === null) {
+          if (mediaHandle === undefined || mediaHandle === null) {
             return sourceMap;
           }
 
           sourceMap[layer.sourceId] = {
             clipId: layer.clipId,
-            mediaItem,
+            mediaItem: mediaHandle.mediaItem,
             sourceId: layer.sourceId,
             sourceOffsetMs: layer.sourceOffsetMs,
+            sourceUrl: mediaHandle.sourceUrl,
           };
           return sourceMap;
         },
@@ -578,26 +584,28 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
       );
       compositionFrame.transitions.forEach((transition): void => {
         if (transition.sourceA !== null) {
-          const sourceAMediaItem = previewSourceCacheRef.current.get(transition.sourceA);
+          const sourceAMediaHandle = previewSourceCacheRef.current.get(transition.sourceA);
 
-          if (sourceAMediaItem !== undefined && sourceAMediaItem !== null) {
+          if (sourceAMediaHandle !== undefined && sourceAMediaHandle !== null) {
             activeSources[transition.sourceA] = {
               clipId: transition.clipId,
-              mediaItem: sourceAMediaItem,
+              mediaItem: sourceAMediaHandle.mediaItem,
               sourceId: transition.sourceA,
               sourceOffsetMs: transition.sourceAOffsetMs ?? 0,
+              sourceUrl: sourceAMediaHandle.sourceUrl,
             };
           }
         }
 
-        const sourceBMediaItem = previewSourceCacheRef.current.get(transition.sourceB);
+        const sourceBMediaHandle = previewSourceCacheRef.current.get(transition.sourceB);
 
-        if (sourceBMediaItem !== undefined && sourceBMediaItem !== null) {
+        if (sourceBMediaHandle !== undefined && sourceBMediaHandle !== null) {
           activeSources[transition.sourceB] = {
             clipId: transition.clipId,
-            mediaItem: sourceBMediaItem,
+            mediaItem: sourceBMediaHandle.mediaItem,
             sourceId: transition.sourceB,
             sourceOffsetMs: transition.sourceBOffsetMs,
+            sourceUrl: sourceBMediaHandle.sourceUrl,
           };
         }
       });
@@ -653,8 +661,9 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
       ]),
     ];
 
-    previewSourceCacheRef.current.forEach((_mediaItem: MediaItem | null, sourceId: string): void => {
+    previewSourceCacheRef.current.forEach((mediaHandle: MediaPlaybackHandle | null, sourceId: string): void => {
       if (!activeSourceIds.includes(sourceId)) {
+        mediaHandle?.release();
         previewSourceCacheRef.current.delete(sourceId);
       }
     });
@@ -669,9 +678,9 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
         return;
       }
 
-      const request = getMediaById(sourceId)
-        .then((mediaItem: MediaItem | null): void => {
-          previewSourceCacheRef.current.set(sourceId, mediaItem);
+      const request = getMediaPlaybackHandle(sourceId)
+        .then((mediaHandle: MediaPlaybackHandle | null): void => {
+          previewSourceCacheRef.current.set(sourceId, mediaHandle);
         })
         .catch((): void => {
           previewSourceCacheRef.current.set(sourceId, null);
@@ -1467,7 +1476,7 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
     setExportState('preparing');
 
     try {
-      const exportedMediaItem = await exportTimelineToMediaItem({
+      await exportTimelineToStoredMedia({
         onProgress: (progress: TimelineExportProgress): void => {
           setExportProgress(progress.fraction);
           setExportState('exporting');
@@ -1482,7 +1491,6 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
       }
 
       setExportState('saving');
-      await saveMedia(exportedMediaItem);
       await refreshMediaItems();
       setExportProgress(1);
       setExportState('completed');
@@ -1625,7 +1633,10 @@ export function TimelineController({ children }: PropsWithChildren): JSX.Element
 
       if (project.id === projectId) {
         const replacementProject =
-          remainingProjects[0]?.project ?? createEmptyTimelineProject('Untitled Project');
+          (remainingProjects[0] === undefined
+            ? null
+            : await getProject(remainingProjects[0].id)) ??
+          createEmptyTimelineProject('Untitled Project');
         setHistoryState({
           future: [],
           past: [],

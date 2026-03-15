@@ -1,6 +1,6 @@
 # AUTEURA-109: Stream generated-track export output instead of buffering
 
-- Status: `ready`
+- Status: `done`
 - Severity: `critical`
 - Release Gate: `release_blocker`
 - Owner: `unassigned`
@@ -57,8 +57,11 @@ Long exports can still fail late with peak-memory exhaustion even though recordi
 - required manual/runtime checks:
   - long export smoke test in browser
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `./node_modules/.bin/vitest run /home/jlf88/auteura/src/services/__tests__/TimelineExportService.test.ts /home/jlf88/auteura/src/services/__tests__/MediaStorageService.test.ts /home/jlf88/auteura/src/context/__tests__/AudioContext.test.tsx`
+  - `./node_modules/.bin/playwright test /home/jlf88/auteura/e2e/critical-path.spec.ts -g "exports a WebM timeline with a multi-segment playable source" --reporter=line`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: closed after switching timeline export from full-blob buffering to chunked persistent output and updating the controller to refresh saved exports directly from storage

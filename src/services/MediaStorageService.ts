@@ -13,7 +13,10 @@ import {
   markCurrentClientWrite,
 } from './AppCompatibilityService';
 
+export type MediaAvailability = 'available' | 'unavailable-linked';
+
 export interface MediaItem {
+  readonly availability: MediaAvailability;
   readonly blob: Blob;
   readonly captureMode: 'burst' | 'photo' | 'recording' | 'timelapse';
   readonly createdAt: number;
@@ -62,6 +65,12 @@ export interface MediaItemDescriptor {
   readonly timestamp: number;
   readonly type: MediaItem['type'];
   readonly width?: number;
+}
+
+export interface MediaPlaybackHandle {
+  readonly mediaItem: MediaItem;
+  readonly release: () => void;
+  readonly sourceUrl: string;
 }
 
 export interface ChunkedRecordingMediaDraft {
@@ -242,11 +251,12 @@ function compareMediaItems(
 }
 
 function buildNormalizedLegacyMediaItem(item: MediaItem | LegacyMediaItem): MediaItem {
+  const itemBlob = item.blob;
   const timestamp = item.timestamp;
   const mimeType =
     'mimeType' in item && typeof item.mimeType === 'string' && item.mimeType.length > 0
       ? item.mimeType
-      : item.blob.type || (item.type === 'video' ? 'video/webm' : 'image/webp');
+      : itemBlob.type || (item.type === 'video' ? 'video/webm' : 'image/webp');
   const captureMode =
     'captureMode' in item && typeof item.captureMode === 'string'
       ? item.captureMode
@@ -260,14 +270,18 @@ function buildNormalizedLegacyMediaItem(item: MediaItem | LegacyMediaItem): Medi
   const width = 'width' in item && typeof item.width === 'number' ? item.width : undefined;
   const height = 'height' in item && typeof item.height === 'number' ? item.height : undefined;
   const sizeBytes =
-    'sizeBytes' in item && typeof item.sizeBytes === 'number' ? item.sizeBytes : item.blob.size;
+    'sizeBytes' in item && typeof item.sizeBytes === 'number' ? item.sizeBytes : itemBlob.size;
   const name =
     'name' in item && typeof item.name === 'string' && item.name.length > 0
       ? item.name
       : `${captureMode}-${timestamp}.${item.type === 'video' ? 'webm' : 'webp'}`;
 
   return {
-    blob: item.blob,
+    availability:
+      'availability' in item && item.availability === 'unavailable-linked'
+        ? 'unavailable-linked'
+        : 'available',
+    blob: itemBlob,
     captureMode,
     createdAt,
     ...(durationMs === undefined ? {} : { durationMs }),
@@ -624,6 +638,7 @@ async function resolveStoredMediaItem(
       const file = await fileHandle.getFile();
 
       return {
+        availability: 'available',
         blob: file,
         captureMode: item.captureMode,
         createdAt: item.createdAt,
@@ -647,6 +662,7 @@ async function resolveStoredMediaItem(
       }
 
       return {
+        availability: 'unavailable-linked',
         blob: new Blob([], { type: item.mimeType }),
         captureMode: item.captureMode,
         createdAt: item.createdAt,
@@ -670,6 +686,7 @@ async function resolveStoredMediaItem(
   if ('kind' in item && item.kind === 'chunked-recording') {
     if (mode === 'library') {
       return {
+        availability: 'available',
         blob: new Blob([], { type: item.mimeType }),
         captureMode: item.captureMode,
         createdAt: item.createdAt,
@@ -690,21 +707,11 @@ async function resolveStoredMediaItem(
     }
 
     const database = await getDatabase();
-    const chunkItems = await database.getAllFromIndex(
-      recordingChunkStoreName,
-      'recordingId',
-      item.id,
-    );
-    const orderedChunks = [...chunkItems].sort(
-      (left: StoredRecordingChunk, right: StoredRecordingChunk): number =>
-        left.sequence - right.sequence,
-    );
+    const orderedChunkBlobs = await loadRecordingChunkBlobs(database, item.id);
 
     return {
-      blob: new Blob(
-        orderedChunks.map((chunk: StoredRecordingChunk): Blob => chunk.blob),
-        { type: item.mimeType },
-      ),
+      availability: 'available',
+      blob: new Blob([...orderedChunkBlobs], { type: item.mimeType }),
       captureMode: item.captureMode,
       createdAt: item.createdAt,
       ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
@@ -726,6 +733,7 @@ async function resolveStoredMediaItem(
   if ('kind' in item && item.kind === 'copied-indexeddb') {
     if (mode === 'library') {
       return {
+        availability: 'available',
         blob: new Blob([], { type: item.mimeType }),
         captureMode: item.captureMode,
         createdAt: item.createdAt,
@@ -753,6 +761,7 @@ async function resolveStoredMediaItem(
     }
 
     return {
+      availability: 'available',
       blob: storedBlob.blob,
       captureMode: item.captureMode,
       createdAt: item.createdAt,
@@ -780,6 +789,143 @@ async function resolveStoredMediaItem(
       storageKind: 'copied-indexeddb',
     } : item,
   );
+}
+
+function createObjectUrlHandle(mediaItem: MediaItem, blob: Blob): MediaPlaybackHandle {
+  const sourceUrl = URL.createObjectURL(blob);
+
+  return {
+    mediaItem,
+    release: (): void => {
+      URL.revokeObjectURL(sourceUrl);
+    },
+    sourceUrl,
+  };
+}
+
+async function listRecordingChunkKeys(
+  database: IDBPDatabase<AuteuraDatabaseSchema>,
+  recordingId: string,
+): Promise<readonly [string, number][]> {
+  const chunkKeys = await database.getAllKeysFromIndex(
+    recordingChunkStoreName,
+    'recordingId',
+    recordingId,
+  );
+
+  return [...chunkKeys].sort(
+    (left: [string, number], right: [string, number]): number => left[1] - right[1],
+  );
+}
+
+async function loadRecordingChunkBlobs(
+  database: IDBPDatabase<AuteuraDatabaseSchema>,
+  recordingId: string,
+): Promise<readonly Blob[]> {
+  const blobs: Blob[] = [];
+
+  for (const chunkKey of await listRecordingChunkKeys(database, recordingId)) {
+    const chunkItem = await database.get(recordingChunkStoreName, chunkKey);
+
+    if (chunkItem !== undefined) {
+      blobs.push(chunkItem.blob);
+    }
+  }
+
+  return blobs;
+}
+
+function appendSourceBufferChunk(
+  sourceBuffer: SourceBuffer,
+  chunkBuffer: ArrayBuffer,
+): Promise<void> {
+  return new Promise((resolve: () => void, reject: (error: Error) => void): void => {
+    function cleanup(): void {
+      sourceBuffer.removeEventListener('error', handleError);
+      sourceBuffer.removeEventListener('updateend', handleUpdateEnd);
+    }
+
+    function handleError(): void {
+      cleanup();
+      reject(new Error('Failed to append chunked media to the playback buffer.'));
+    }
+
+    function handleUpdateEnd(): void {
+      cleanup();
+      resolve();
+    }
+
+    sourceBuffer.addEventListener('error', handleError, { once: true });
+    sourceBuffer.addEventListener('updateend', handleUpdateEnd, { once: true });
+    sourceBuffer.appendBuffer(chunkBuffer);
+  });
+}
+
+async function createChunkedPlaybackHandle(
+  item: StoredChunkedRecordingMediaItem,
+): Promise<MediaPlaybackHandle | null> {
+  if (typeof MediaSource === 'undefined') {
+    return null;
+  }
+
+  const mediaItem = await resolveStoredMediaItem(item, 'library');
+
+  if (mediaItem === null) {
+    return null;
+  }
+
+  const database = await getDatabase();
+  const chunkKeys = await listRecordingChunkKeys(database, item.id);
+  const mediaSource = new MediaSource();
+  const sourceUrl = URL.createObjectURL(mediaSource);
+  let released = false;
+
+  mediaSource.addEventListener(
+    'sourceopen',
+    (): void => {
+      void (async (): Promise<void> => {
+        try {
+          const sourceBuffer = mediaSource.addSourceBuffer(item.mimeType);
+
+          for (const chunkKey of chunkKeys) {
+            if (released) {
+              return;
+            }
+
+            const chunkItem = await database.get(recordingChunkStoreName, chunkKey);
+
+            if (chunkItem === undefined) {
+              continue;
+            }
+
+            await appendSourceBufferChunk(sourceBuffer, await chunkItem.blob.arrayBuffer());
+          }
+
+          if (!released && mediaSource.readyState === 'open') {
+            mediaSource.endOfStream();
+          }
+        } catch {
+          if (!released && mediaSource.readyState === 'open') {
+            try {
+              mediaSource.endOfStream('decode');
+            } catch {
+              // Ignore end-of-stream races during playback setup failure.
+            }
+          }
+        }
+      })();
+    },
+    { once: true },
+  );
+
+  return {
+    mediaItem,
+    release: (): void => {
+      released = true;
+      URL.revokeObjectURL(sourceUrl);
+    },
+    sourceUrl,
+  };
 }
 
 async function getStoredItemsInternal(
@@ -1068,6 +1214,7 @@ export async function saveImportedMedia(importedMedia: PreparedImportedMedia): P
   }
 
   await saveMedia({
+    availability: 'available',
     blob: importedMedia.file,
     captureMode: 'photo',
     createdAt: importedMedia.timestamp,
@@ -1108,6 +1255,109 @@ export async function getMediaById(id: string): Promise<MediaItem | null> {
   }
 
   return resolveStoredMediaItem(storedItem, 'strict');
+}
+
+export async function getMediaPlaybackHandle(id: string): Promise<MediaPlaybackHandle | null> {
+  const database = await getDatabase();
+  const storedItem = await database.get(mediaStoreName, id);
+
+  if (storedItem === undefined) {
+    return null;
+  }
+
+  if ('kind' in storedItem && storedItem.kind === 'chunked-recording') {
+    return createChunkedPlaybackHandle(storedItem);
+  }
+
+  const mediaItem = await resolveStoredMediaItem(storedItem, 'strict');
+
+  if (mediaItem === null) {
+    return null;
+  }
+
+  return createObjectUrlHandle(mediaItem, mediaItem.blob);
+}
+
+export async function downloadMediaById(id: string): Promise<boolean> {
+  const database = await getDatabase();
+  const storedItem = await database.get(mediaStoreName, id);
+
+  if (storedItem === undefined) {
+    return false;
+  }
+
+  const globalScope = globalThis as typeof globalThis & {
+    showSaveFilePicker?: (options?: {
+      excludeAcceptAllOption?: boolean;
+      suggestedName?: string;
+      types?: Array<{
+        accept: Record<string, string[]>;
+        description: string;
+      }>;
+    }) => Promise<{
+      createWritable: () => Promise<{
+        close: () => Promise<void>;
+        write: (data: Blob | BufferSource | string) => Promise<void>;
+      }>;
+    }>;
+  };
+
+  if (
+    'kind' in storedItem &&
+    storedItem.kind === 'chunked-recording' &&
+    typeof globalScope.showSaveFilePicker === 'function'
+  ) {
+    const fileHandle = await globalScope.showSaveFilePicker({
+      excludeAcceptAllOption: false,
+      suggestedName: storedItem.name,
+      types: [
+        {
+          accept: {
+            [storedItem.mimeType]: ['.webm'],
+          },
+          description: 'Auteura video export',
+        },
+      ],
+    });
+    const writable = await fileHandle.createWritable();
+
+    try {
+      for (const chunkKey of await listRecordingChunkKeys(database, id)) {
+        const chunkItem = await database.get(recordingChunkStoreName, chunkKey);
+
+        if (chunkItem === undefined) {
+          continue;
+        }
+
+        await writable.write(chunkItem.blob);
+      }
+    } finally {
+      await writable.close();
+    }
+
+    return true;
+  }
+
+  const mediaItem = await resolveStoredMediaItem(storedItem, 'strict');
+
+  if (mediaItem === null) {
+    return false;
+  }
+
+  const objectUrl = URL.createObjectURL(mediaItem.blob);
+  const linkElement = document.createElement('a');
+  linkElement.href = objectUrl;
+  linkElement.download = mediaItem.name;
+  linkElement.style.display = 'none';
+  document.body.appendChild(linkElement);
+  linkElement.click();
+  document.body.removeChild(linkElement);
+
+  window.setTimeout((): void => {
+    URL.revokeObjectURL(objectUrl);
+  }, 0);
+
+  return true;
 }
 
 export async function getMediaDescriptorsByIds(

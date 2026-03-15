@@ -163,7 +163,7 @@ describe('GLRenderer', (): void => {
     expect(pipeline.resize).toHaveBeenCalledWith(context, 640, 360, 0.65);
   });
 
-  it('disposes pipeline resources without forcing context loss on generic cleanup', (): void => {
+  it('explicitly loses the WebGL context on final disposal', (): void => {
     globalThis.window = {
       devicePixelRatio: 1,
     } as Window & typeof globalThis;
@@ -179,7 +179,28 @@ describe('GLRenderer', (): void => {
     renderer.dispose();
 
     expect(pipeline.dispose).toHaveBeenCalledWith(context);
-    expect(loseContext).not.toHaveBeenCalled();
+    expect(loseContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps disposal idempotent across repeated shutdown calls', (): void => {
+    globalThis.window = {
+      devicePixelRatio: 1,
+    } as Window & typeof globalThis;
+
+    const loseContext = vi.fn();
+    const { canvas, context, pipeline } = createHarness();
+    context.getExtension.mockReturnValue({
+      loseContext,
+    });
+    const renderer = new GLRenderer(canvas, pipeline as never);
+
+    renderer.initialize();
+    renderer.dispose();
+    renderer.dispose();
+
+    expect(pipeline.dispose).toHaveBeenCalledTimes(1);
+    expect(pipeline.dispose).toHaveBeenCalledWith(context);
+    expect(loseContext).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to 2d preview when WebGL initialization fails', (): void => {
@@ -200,6 +221,30 @@ describe('GLRenderer', (): void => {
     expect(consoleWarn).toHaveBeenCalled();
     expect(renderer.getDiagnostics().backend).toBe('canvas-2d');
     expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+
+    consoleWarn.mockRestore();
+  });
+
+  it('falls back to 2d preview when a WebGL render pass throws after initialization', (): void => {
+    globalThis.window = {
+      devicePixelRatio: 1,
+    } as Window & typeof globalThis;
+
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { canvas, context, context2d, pipeline } = createHarness();
+    pipeline.render.mockImplementation(() => {
+      throw new Error('Transient pass failure');
+    });
+    const renderer = new GLRenderer(canvas, pipeline as never);
+
+    renderer.initialize();
+    renderer.renderFrame(canvas, createRenderFrameState(1));
+    renderer.renderFrame(canvas, createRenderFrameState(1));
+
+    expect(pipeline.dispose).toHaveBeenCalledWith(context);
+    expect(renderer.getDiagnostics().backend).toBe('canvas-2d');
+    expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+    expect(consoleWarn).toHaveBeenCalled();
 
     consoleWarn.mockRestore();
   });

@@ -1,6 +1,6 @@
 # AUTEURA-111: Recover renderer after frame exceptions
 
-- Status: `ready`
+- Status: `done`
 - Severity: `high`
 - Release Gate: `release_blocker`
 - Owner: `unassigned`
@@ -39,9 +39,9 @@ Transient pass failures should degrade gracefully, not permanently kill the moni
 
 ## Acceptance Criteria
 
-- [ ] transient frame errors trigger bounded recovery instead of permanent preview death
-- [ ] fallback to 2D or controlled renderer reinit happens automatically when appropriate
-- [ ] repeated failures surface a stable user-visible error state instead of a dead loop
+- [x] transient frame errors trigger bounded recovery instead of permanent preview death
+- [x] fallback to 2D or controlled renderer reinit happens automatically when appropriate
+- [x] repeated failures surface a stable user-visible error state instead of a dead loop
 
 ## Implementation Notes
 
@@ -55,8 +55,11 @@ Transient pass failures should degrade gracefully, not permanently kill the moni
 - required manual/runtime checks:
   - verify preview recovers or cleanly falls back without refresh
 - closure evidence:
-  - pending
+  - `npm run typecheck`
+  - `vitest run src/engine/__tests__/GLRenderer.test.ts src/services/__tests__/TimelineExportService.test.ts src/services/__tests__/MediaStorageService.test.ts`
+  - `playwright test e2e/critical-path.spec.ts -g "falls back to the Canvas 2D renderer when WebGL is unavailable"`
 
 ## Change Log
 
 - `2026-03-15`: initial ticket created from release audit
+- `2026-03-15`: added runtime render fallback inside `GLRenderer`, bounded render-loop recovery in `RenderController`, and validated fallback behavior in unit and browser tests

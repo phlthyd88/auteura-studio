@@ -1,5 +1,13 @@
 import { composeTimelineFrame } from './TimelineCompositor';
-import { getMediaById, type MediaItem } from './MediaStorageService';
+import {
+  appendChunkedRecordingMediaChunk,
+  createChunkedRecordingMedia,
+  discardChunkedRecordingMedia,
+  finalizeChunkedRecordingMedia,
+  getMediaPlaybackHandle,
+  type MediaItem,
+  type MediaPlaybackHandle,
+} from './MediaStorageService';
 import type {
   TimelineAudioCompositionInstruction,
   TimelineProject,
@@ -38,9 +46,13 @@ export interface TimelineExportOptions {
   readonly videoBitsPerSecond?: number;
 }
 
+export interface TimelineExportResult {
+  readonly mediaId: string;
+}
+
 interface PreparedTimelineSource {
   readonly item: MediaItem;
-  readonly objectUrl: string;
+  readonly release: () => void;
   readonly sourceElement: HTMLImageElement | HTMLVideoElement;
 }
 
@@ -103,6 +115,10 @@ function createThumbnail(canvas: HTMLCanvasElement): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function toError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
 }
 
 function getSupportedMimeType(): string | undefined {
@@ -171,18 +187,18 @@ function waitForVideoSeek(videoElement: HTMLVideoElement): Promise<void> {
   });
 }
 
-async function loadPreparedSource(mediaItem: MediaItem): Promise<PreparedTimelineSource> {
-  const objectUrl = URL.createObjectURL(mediaItem.blob);
+async function loadPreparedSource(mediaHandle: MediaPlaybackHandle): Promise<PreparedTimelineSource> {
+  const { mediaItem, sourceUrl } = mediaHandle;
 
   if (mediaItem.type === 'image') {
     const imageElement = new Image();
     imageElement.decoding = 'async';
-    imageElement.src = objectUrl;
+    imageElement.src = sourceUrl;
     await imageElement.decode();
 
     return {
       item: mediaItem,
-      objectUrl,
+      release: mediaHandle.release,
       sourceElement: imageElement,
     };
   }
@@ -191,7 +207,7 @@ async function loadPreparedSource(mediaItem: MediaItem): Promise<PreparedTimelin
   videoElement.muted = true;
   videoElement.playsInline = true;
   videoElement.preload = 'auto';
-  videoElement.src = objectUrl;
+  videoElement.src = sourceUrl;
 
   await new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
     function cleanup(): void {
@@ -215,7 +231,7 @@ async function loadPreparedSource(mediaItem: MediaItem): Promise<PreparedTimelin
 
   return {
     item: mediaItem,
-    objectUrl,
+    release: mediaHandle.release,
     sourceElement: videoElement,
   };
 }
@@ -231,14 +247,19 @@ async function prepareTimelineSources(
 
   const preparedEntries = await Promise.all(
     [...uniqueMediaIds].map(async (mediaId: string): Promise<readonly [string, PreparedTimelineSource]> => {
-      const mediaItem = await getMediaById(mediaId);
+      const mediaHandle = await getMediaPlaybackHandle(mediaId);
 
-      if (mediaItem === null) {
+      if (mediaHandle === null) {
         throw new Error(`Timeline export is missing source media ${mediaId}.`);
       }
 
-      const preparedSource = await loadPreparedSource(mediaItem);
-      return [mediaId, preparedSource] as const;
+      try {
+        const preparedSource = await loadPreparedSource(mediaHandle);
+        return [mediaId, preparedSource] as const;
+      } catch (error: unknown) {
+        mediaHandle.release();
+        throw error;
+      }
     }),
   );
 
@@ -275,7 +296,7 @@ function resolveCanvasSize(
 
 function revokePreparedSources(preparedSources: ReadonlyMap<string, PreparedTimelineSource>): void {
   preparedSources.forEach((preparedSource: PreparedTimelineSource): void => {
-    URL.revokeObjectURL(preparedSource.objectUrl);
+    preparedSource.release();
 
     if (preparedSource.sourceElement instanceof HTMLVideoElement) {
       preparedSource.sourceElement.pause();
@@ -652,6 +673,98 @@ async function writeOfflineAudioTrack(
   decodedBufferCache.clear();
 }
 
+interface ChunkedTimelineExportPersistence {
+  appendChunk: (chunk: Blob) => void;
+  discard: () => Promise<void>;
+  finalize: (finishedAt: number, durationMs: number) => Promise<TimelineExportResult>;
+}
+
+async function createChunkedTimelineExportPersistence(options: {
+  readonly captureMode: 'recording';
+  readonly createdAt: number;
+  readonly height: number;
+  readonly mimeType: string;
+  readonly name: string;
+  readonly onChunkPersistenceError: (error: Error) => void;
+  readonly thumbnail?: string;
+  readonly width: number;
+}): Promise<ChunkedTimelineExportPersistence> {
+  const mediaId = crypto.randomUUID();
+  let nextChunkSequence = 0;
+  let chunkPersistenceFailed = false;
+  let chunkWriteChain = Promise.resolve();
+  let discarded = false;
+
+  await createChunkedRecordingMedia({
+    captureMode: options.captureMode,
+    createdAt: options.createdAt,
+    height: options.height,
+    id: mediaId,
+    mimeType: options.mimeType,
+    name: options.name,
+    origin: 'capture',
+    ...(options.thumbnail === undefined ? {} : { thumbnail: options.thumbnail }),
+    timestamp: options.createdAt,
+    type: 'video',
+    width: options.width,
+  });
+
+  async function discard(): Promise<void> {
+    if (discarded) {
+      return;
+    }
+
+    discarded = true;
+    await chunkWriteChain.catch((): void => undefined);
+    await discardChunkedRecordingMedia(mediaId).catch((): void => undefined);
+  }
+
+  return {
+    appendChunk(chunk: Blob): void {
+      if (chunk.size <= 0 || chunkPersistenceFailed || discarded) {
+        return;
+      }
+
+      const chunkSequence = nextChunkSequence;
+      nextChunkSequence += 1;
+      chunkWriteChain = chunkWriteChain
+        .then(async (): Promise<void> => {
+          await appendChunkedRecordingMediaChunk(mediaId, chunkSequence, chunk);
+        })
+        .catch((error: unknown): void => {
+          chunkPersistenceFailed = true;
+          options.onChunkPersistenceError(
+            toError(error, 'Failed to persist a timeline export segment.'),
+          );
+        });
+    },
+    async discard(): Promise<void> {
+      await discard();
+    },
+    async finalize(finishedAt: number, durationMs: number): Promise<TimelineExportResult> {
+      try {
+        await chunkWriteChain;
+
+        if (chunkPersistenceFailed) {
+          throw new Error('Failed to persist a timeline export segment.');
+        }
+
+        await finalizeChunkedRecordingMedia(mediaId, {
+          durationMs,
+          timestamp: finishedAt,
+        });
+
+        return {
+          mediaId,
+        };
+      } catch (error: unknown) {
+        await discard();
+        throw toError(error, 'Failed to finalize timeline export output.');
+      }
+    },
+  };
+}
+
 async function exportTimelineWithGeneratedTracks(
   options: TimelineExportOptions,
   support: GeneratedTrackSupport,
@@ -659,7 +772,7 @@ async function exportTimelineWithGeneratedTracks(
   exportCanvas: HTMLCanvasElement,
   renderer: ReturnType<typeof createStudioRenderer>,
   compositionAdapter: CompositionRenderAdapter,
-): Promise<MediaItem> {
+): Promise<TimelineExportResult> {
   const fps = Math.max(1, options.fps ?? defaultExportFps);
   const frameCount = resolveExportFrameCount(options.project.durationMs, fps);
   const frameDurationUs = Math.round(1_000_000 / fps);
@@ -683,44 +796,76 @@ async function exportTimelineWithGeneratedTracks(
   }
 
   const recorder = new MediaRecorder(outputStream, recorderOptions);
-  const exportChunks: Blob[] = [];
+  const exportThumbnail = createThumbnail(exportCanvas);
+  const persistence = await createChunkedTimelineExportPersistence({
+    captureMode: 'recording',
+    createdAt: exportStartedAt,
+    height: exportCanvas.height,
+    mimeType: recorder.mimeType || mimeType || 'video/webm',
+    name: createMediaName(exportStartedAt),
+    onChunkPersistenceError: (error: Error): void => {
+      exportFailure ??= error;
+
+      if (recorder.state !== 'inactive') {
+        try {
+          recorder.stop();
+        } catch {
+          // Ignore recorder stop races after persistence failures.
+        }
+      }
+    },
+    ...(exportThumbnail === undefined ? {} : { thumbnail: exportThumbnail }),
+    width: exportCanvas.width,
+  });
+  let exportFailure: Error | null = null;
+  let settled = false;
 
   recorder.ondataavailable = (event: BlobEvent): void => {
-    if (event.data.size > 0) {
-      exportChunks.push(event.data);
-    }
+    persistence.appendChunk(event.data);
   };
 
-  const mediaItemPromise = new Promise<MediaItem>((resolve, reject): void => {
+  const exportResultPromise = new Promise<TimelineExportResult>((resolve, reject): void => {
+    const rejectOnce = (error: Error): void => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    };
+
+    const resolveOnce = (result: TimelineExportResult): void => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
     recorder.onerror = (): void => {
-      reject(new Error('Timeline export failed while encoding the generated output stream.'));
+      const recorderError = new Error(
+        'Timeline export failed while encoding the generated output stream.',
+      );
+      exportFailure ??= recorderError;
+
+      if (recorder.state === 'inactive') {
+        void persistence.discard().finally((): void => {
+          rejectOnce(recorderError);
+        });
+      }
     };
 
     recorder.onstop = (): void => {
-      const finalBlob = new Blob(exportChunks, {
-        type: recorder.mimeType || mimeType || 'video/webm',
-      });
-      const finishedAt = Date.now();
-      const thumbnail = createThumbnail(exportCanvas);
+      void (async (): Promise<void> => {
+        if (exportFailure !== null) {
+          await persistence.discard();
+          rejectOnce(exportFailure);
+          return;
+        }
 
-      resolve({
-        blob: finalBlob,
-        captureMode: 'recording',
-        createdAt: exportStartedAt,
-        durationMs: options.project.durationMs,
-        height: exportCanvas.height,
-        id: crypto.randomUUID(),
-        isAvailable: true,
-        mimeType: finalBlob.type || 'video/webm',
-        name: createMediaName(exportStartedAt),
-        origin: 'capture',
-        sizeBytes: finalBlob.size,
-        storageKind: 'copied-indexeddb',
-        ...(thumbnail === undefined ? {} : { thumbnail }),
-        timestamp: finishedAt,
-        type: 'video',
-        width: exportCanvas.width,
-      });
+        try {
+          resolveOnce(await persistence.finalize(Date.now(), options.project.durationMs));
+        } catch (error: unknown) {
+          rejectOnce(toError(error, 'Timeline export failed unexpectedly.'));
+        }
+      })();
     };
   });
 
@@ -781,22 +926,22 @@ async function exportTimelineWithGeneratedTracks(
     (videoTrack as unknown as MediaStreamTrack).stop();
     (audioTrack as unknown as MediaStreamTrack | null)?.stop();
     recorder.stop();
-    return await mediaItemPromise;
+    return await exportResultPromise;
   } catch (error: unknown) {
+    exportFailure ??= toError(error, 'Timeline export failed unexpectedly.');
     try {
       recorder.stop();
     } catch {
       // Ignore recorder stop races after export failures.
+      await persistence.discard();
     }
-    throw error instanceof Error ? error : new Error('Timeline export failed unexpectedly.');
-  } finally {
-    exportChunks.length = 0;
+    throw exportFailure;
   }
 }
 
-export async function exportTimelineToMediaItem(
+export async function exportTimelineToStoredMedia(
   options: TimelineExportOptions,
-): Promise<MediaItem> {
+): Promise<TimelineExportResult> {
   if (typeof MediaRecorder === 'undefined') {
     throw new Error('Timeline export requires MediaRecorder support.');
   }
@@ -845,17 +990,39 @@ export async function exportTimelineToMediaItem(
       mimeType === undefined
         ? { videoBitsPerSecond: options.videoBitsPerSecond ?? defaultExportVideoBitsPerSecond }
         : {
-            mimeType,
-            videoBitsPerSecond: options.videoBitsPerSecond ?? defaultExportVideoBitsPerSecond,
-          };
+          mimeType,
+          videoBitsPerSecond: options.videoBitsPerSecond ?? defaultExportVideoBitsPerSecond,
+        };
     const recorder = new MediaRecorder(exportStream, recorderOptions);
-    const exportChunks: Blob[] = [];
     const exportStartedAt = Date.now();
     const abortSignal = options.signal;
+    const exportName = createMediaName(exportStartedAt);
+    const exportThumbnail = createThumbnail(exportCanvas);
+    let exportFailure: Error | null = null;
+    let settled = false;
+    const persistence = await createChunkedTimelineExportPersistence({
+      captureMode: 'recording',
+      createdAt: exportStartedAt,
+      height: exportCanvas.height,
+      mimeType: recorder.mimeType || mimeType || 'video/webm',
+      name: exportName,
+      onChunkPersistenceError: (error: Error): void => {
+        exportFailure ??= error;
+
+        if (recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+          } catch {
+            // Ignore recorder stop races after persistence failures.
+          }
+        }
+      },
+      ...(exportThumbnail === undefined ? {} : { thumbnail: exportThumbnail }),
+      width: exportCanvas.width,
+    });
 
     let animationFrameId: number | null = null;
     let fallbackTimeoutId: number | null = null;
-    let settled = false;
 
     function cleanup(): void {
       if (animationFrameId !== null) {
@@ -877,58 +1044,55 @@ export async function exportTimelineToMediaItem(
         track.stop();
       });
       void preparedAudio?.audioContext.close().catch((): void => undefined);
-      exportChunks.length = 0;
-    }
-
-    function finalizeWithError(error: Error): never {
-      if (!settled) {
-        settled = true;
-        recorder.ondataavailable = null;
-        recorder.onstop = null;
-        recorder.onerror = null;
-        cleanup();
-      }
-
-      throw error;
     }
 
     recorder.ondataavailable = (event: BlobEvent): void => {
-      if (event.data.size > 0) {
-        exportChunks.push(event.data);
-      }
+      persistence.appendChunk(event.data);
     };
 
-    const mediaItemPromise = new Promise<MediaItem>((resolve, reject): void => {
+    const exportResultPromise = new Promise<TimelineExportResult>((resolve, reject): void => {
+      const rejectOnce = (error: Error): void => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
+
+      const resolveOnce = (result: TimelineExportResult): void => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
+
       recorder.onerror = (): void => {
-        reject(new Error('Timeline export failed while encoding the output stream.'));
+        const recorderError = new Error('Timeline export failed while encoding the output stream.');
+        exportFailure ??= recorderError;
+
+        if (recorder.state === 'inactive') {
+          void persistence.discard().finally((): void => {
+            cleanup();
+            rejectOnce(recorderError);
+          });
+        }
       };
 
       recorder.onstop = (): void => {
-        const finalBlob = new Blob(exportChunks, {
-          type: recorder.mimeType || mimeType || 'video/webm',
-        });
-        const finishedAt = Date.now();
-        const thumbnail = createThumbnail(exportCanvas);
-        const nextMediaItem: MediaItem = {
-          blob: finalBlob,
-          captureMode: 'recording',
-          createdAt: exportStartedAt,
-          durationMs: options.project.durationMs,
-          height: exportCanvas.height,
-          id: crypto.randomUUID(),
-          isAvailable: true,
-          mimeType: finalBlob.type || 'video/webm',
-          name: createMediaName(exportStartedAt),
-          origin: 'capture',
-          sizeBytes: finalBlob.size,
-          storageKind: 'copied-indexeddb',
-          ...(thumbnail === undefined ? {} : { thumbnail }),
-          timestamp: finishedAt,
-          type: 'video',
-          width: exportCanvas.width,
-        };
+        void (async (): Promise<void> => {
+          try {
+            if (exportFailure !== null) {
+              await persistence.discard();
+              rejectOnce(exportFailure);
+              return;
+            }
 
-        resolve(nextMediaItem);
+            resolveOnce(await persistence.finalize(Date.now(), options.project.durationMs));
+          } catch (error: unknown) {
+            rejectOnce(toError(error, 'Timeline export failed unexpectedly.'));
+          } finally {
+            cleanup();
+          }
+        })();
       };
     });
 
@@ -1031,12 +1195,25 @@ export async function exportTimelineToMediaItem(
           reject(error instanceof Error ? error : new Error('Timeline export render failed.'));
         });
       });
-    }).catch((error: Error): never => finalizeWithError(error));
+    }).catch(async (error: Error): Promise<never> => {
+      exportFailure ??= error;
 
-    const mediaItem = await mediaItemPromise;
-    settled = true;
-    cleanup();
-    return mediaItem;
+      try {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        } else {
+          await persistence.discard();
+          cleanup();
+        }
+      } catch {
+        await persistence.discard();
+        cleanup();
+      }
+
+      throw exportFailure;
+    });
+
+    return await exportResultPromise;
   } finally {
     renderer.dispose();
     revokePreparedSources(preparedSources);

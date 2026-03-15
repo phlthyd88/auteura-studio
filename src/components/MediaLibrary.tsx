@@ -25,7 +25,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StudioDeckSection } from './StudioDeckSection';
 import { StudioEmptyState } from './StudioEmptyState';
 import { useRecordingController } from '../controllers/RecordingController';
-import { getMediaById, type MediaItem } from '../services/MediaStorageService';
+import {
+  downloadMediaById,
+  getMediaById,
+  type MediaItem,
+} from '../services/MediaStorageService';
 
 type MediaFilter = 'all' | MediaItem['type'];
 type MediaSort = 'largest' | 'newest' | 'oldest';
@@ -141,6 +145,10 @@ export function MediaLibrary(): JSX.Element {
   }, [mediaPage, totalPages]);
 
   async function handleDownload(item: MediaItem): Promise<void> {
+    if (await downloadMediaById(item.id)) {
+      return;
+    }
+
     const resolvedItem = await getMediaById(item.id);
 
     if (resolvedItem === null) {
@@ -447,7 +455,7 @@ export function MediaLibrary(): JSX.Element {
                       {item.origin === 'imported' ? 'Imported' : 'Captured'}
                       {' • '}
                       {item.storageKind === 'file-system-handle' ? 'Linked file' : 'Stored copy'}
-                      {!item.isAvailable ? ' • unavailable' : ''}
+                      {item.availability === 'unavailable-linked' ? ' • unavailable' : ''}
                     </Typography>
                   </Stack>
                 }
