@@ -14,6 +14,39 @@ async function openStudioConsole(page: Page, consoleName: StudioConsole): Promis
   await page.getByRole('button', { name: studioConsoleLabels[consoleName] }).click();
 }
 
+async function waitForPersistedMediaItem(
+  page: Page,
+  namePattern: RegExp,
+  timeoutMs: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async (): Promise<boolean> =>
+        page.evaluate(
+          async ({
+            flags,
+            source,
+          }: {
+            readonly flags: string;
+            readonly source: string;
+          }): Promise<boolean> => {
+            const { getAllMedia } = await import('/src/services/MediaStorageService.ts');
+            const matcher = new RegExp(source, flags);
+            const items = await getAllMedia();
+            return items.some((item): boolean => matcher.test(item.name));
+          },
+          {
+            flags: namePattern.flags,
+            source: namePattern.source,
+          },
+        ),
+      {
+        timeout: timeoutMs,
+      },
+    )
+    .toBe(true);
+}
+
 async function seedExportSourceVideo(page: Page): Promise<void> {
   await page.evaluate(async (): Promise<void> => {
     const globalScope = globalThis as typeof globalThis & {
@@ -670,9 +703,11 @@ test('exports a WebM timeline with a multi-segment playable source', async ({
 
   await page.getByRole('button', { name: 'Export WebM' }).click();
 
+  await waitForPersistedMediaItem(page, /timeline-export-\d+\.webm/i, 240_000);
+  await page.reload();
   await openStudioConsole(page, 'pipeline');
   await expect(page.getByText(/timeline-export-\d+\.webm/i)).toBeVisible({
-    timeout: 240_000,
+    timeout: 30_000,
   });
 });
 
