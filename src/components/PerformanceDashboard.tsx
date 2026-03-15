@@ -41,6 +41,7 @@ export function PerformanceDashboard(): JSX.Element {
   const isForceHighQuality =
     previewQualityOverride === 1 ||
     (mode === 'quality' && diagnostics.activeDegradationStage > 0);
+  const isAnyAIFeatureActive = Object.values(activeFeatures).some(Boolean);
 
   return (
     <Stack spacing={2}>
@@ -124,7 +125,10 @@ export function PerformanceDashboard(): JSX.Element {
                 Est. Latency
               </Typography>
               <Typography variant="body2">
-                {(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms
+                {(
+                  diagnostics.averageFrameTimeMs +
+                  (isAnyAIFeatureActive ? aiDiagnostics.averageProcessingDurationMs : 0)
+                ).toFixed(1)} ms
               </Typography>
             </Box>
           </Box>

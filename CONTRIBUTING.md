@@ -32,6 +32,8 @@ We welcome contributions to Auteura! Whether it's fixing bugs, adding features, 
 - Add **Vitest unit tests** for new service or controller logic.
 - Add **Playwright E2E tests** for new critical user flows.
 - Run **npm run lint** and **npm run typecheck** before submitting.
+- Track reliability and release work through the repo ticket system in [docs/tracking/README.md](docs/tracking/README.md).
+- Add or update the corresponding ticket in [docs/tracking/release-stability-board.md](docs/tracking/release-stability-board.md) before starting high-risk remediation work.
 
 ## Reporting Issues
 

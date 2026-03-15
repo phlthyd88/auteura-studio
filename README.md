@@ -70,6 +70,10 @@ npm run test:unit
 npm run test:e2e
 ```
 
+## 🧾 Reliability Tracking
+
+Open remediation and release-hardening work is tracked in [docs/tracking/release-stability-board.md](docs/tracking/release-stability-board.md). Use the ticket template in [docs/tracking/ticket-template.md](docs/tracking/ticket-template.md) for new reliability issues and release-gate work.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
