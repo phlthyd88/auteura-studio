@@ -671,8 +671,10 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
     canvasRef,
     createSnapshotItem,
     persistMediaItems,
+    postTimelapseWorkerMessage,
     stopTimelapseSession,
     updateTimelapseShotsCaptured,
+    updateTimelapseState,
   ]);
 
   const buildRecordingStream = useCallback(async (): Promise<MediaStream> => {
