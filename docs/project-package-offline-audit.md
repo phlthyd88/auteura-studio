@@ -5,10 +5,10 @@ This audit closes `P24-04B` for the current manifest-first package path.
 ## Scope
 
 Audited implementation:
-- [ProjectPackageService.ts](/home/jlf88/auteura/src/services/ProjectPackageService.ts)
-- [TimelineController.tsx](/home/jlf88/auteura/src/controllers/TimelineController.tsx)
-- [TimelinePanel.tsx](/home/jlf88/auteura/src/components/TimelinePanel.tsx)
-- [vite.config.ts](/home/jlf88/auteura/vite.config.ts)
+- [ProjectPackageService.ts](../src/services/ProjectPackageService.ts)
+- [TimelineController.tsx](../src/controllers/TimelineController.tsx)
+- [TimelinePanel.tsx](../src/components/TimelinePanel.tsx)
+- [vite.config.ts](../vite.config.ts)
 
 ## Result
 
@@ -51,7 +51,7 @@ The current implementation intentionally maintains:
 - `requiresPrecachedAssets = false`
 
 Those values are also exposed through `getOfflinePackagingAuditSnapshot()` in
-[ProjectPackageService.ts](/home/jlf88/auteura/src/services/ProjectPackageService.ts).
+[ProjectPackageService.ts](../src/services/ProjectPackageService.ts).
 
 ## Change rule
 

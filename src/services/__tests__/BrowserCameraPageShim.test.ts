@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-const SHIM_PATH = '/home/jlf88/auteura/extensions/auteura-browser-camera/page-shim.main.js';
+const SHIM_PATH = path.resolve(process.cwd(), 'extensions/auteura-browser-camera/page-shim.main.js');
 const DEVICE_ID = 'auteura-browser-camera-preview';
 const MESSAGE_PREFIX = '__auteura_virtual_output_page__';
 

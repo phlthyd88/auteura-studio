@@ -32,7 +32,7 @@ Out of scope:
 | Surface | Status | Notes |
 | --- | --- | --- |
 | Auteura host lifecycle | Automated | Covered by unit tests and app E2E setup flow |
-| MV3 broker registration/routing | Automated | Covered by [BrowserCameraExtension.test.ts](/home/jlf88/auteura/src/services/__tests__/BrowserCameraExtension.test.ts) |
+| MV3 broker registration/routing | Automated | Covered by [BrowserCameraExtension.test.ts](../src/services/__tests__/BrowserCameraExtension.test.ts) |
 | Google Meet browser-camera path | Automated + Manual pending | Handshake/protocol is covered; live manual browser verification still required |
 | Chrome stable desktop | Manual pending | Primary target |
 | Edge stable desktop | Manual pending | Expected to work, not yet manually signed off |
@@ -76,7 +76,7 @@ Out of scope:
 1. Open `chrome://extensions`.
 2. Enable `Developer mode`.
 3. Load unpacked from:
-   - `/home/jlf88/auteura/extensions/auteura-browser-camera`
+   - `../extensions/auteura-browser-camera`
 4. Open Auteura on localhost.
 5. Open the `VIEW` deck.
 6. Confirm:
@@ -140,11 +140,11 @@ For each browser/site row marked `Manual pending`, collect:
 ## Current automated evidence
 
 Automated coverage currently exists in:
-- [AuteuraVirtualOutputService.test.ts](/home/jlf88/auteura/src/services/__tests__/AuteuraVirtualOutputService.test.ts)
-- [AuteuraVirtualOutputBridgeService.test.ts](/home/jlf88/auteura/src/services/__tests__/AuteuraVirtualOutputBridgeService.test.ts)
-- [VirtualOutputProtocol.test.ts](/home/jlf88/auteura/src/services/__tests__/VirtualOutputProtocol.test.ts)
-- [BrowserCameraExtension.test.ts](/home/jlf88/auteura/src/services/__tests__/BrowserCameraExtension.test.ts)
-- [critical-path.spec.ts](/home/jlf88/auteura/e2e/critical-path.spec.ts)
+- [AuteuraVirtualOutputService.test.ts](../src/services/__tests__/AuteuraVirtualOutputService.test.ts)
+- [AuteuraVirtualOutputBridgeService.test.ts](../src/services/__tests__/AuteuraVirtualOutputBridgeService.test.ts)
+- [VirtualOutputProtocol.test.ts](../src/services/__tests__/VirtualOutputProtocol.test.ts)
+- [BrowserCameraExtension.test.ts](../src/services/__tests__/BrowserCameraExtension.test.ts)
+- [critical-path.spec.ts](../e2e/critical-path.spec.ts)
 
 ## Recommendation
 

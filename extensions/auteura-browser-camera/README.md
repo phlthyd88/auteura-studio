@@ -21,7 +21,7 @@ Current limitation:
 3. Choose `Load unpacked`
 4. Select this folder:
 
-   `/home/jlf88/auteura/extensions/auteura-browser-camera`
+   `./`
 
 ## Files
 
@@ -35,7 +35,7 @@ Current limitation:
 
 Manual signoff and browser/site status live in:
 
-- `/home/jlf88/auteura/docs/browser-camera-compatibility-matrix.md`
+- `../../docs/browser-camera-compatibility-matrix.md`
 
 ## Current next tickets
 

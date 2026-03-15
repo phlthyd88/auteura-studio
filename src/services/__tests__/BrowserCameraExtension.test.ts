@@ -142,7 +142,8 @@ function loadBackgroundScript(
   };
 } {
   const backgroundScriptPath = path.resolve(
-    '/home/jlf88/auteura/extensions/auteura-browser-camera/background.js',
+    process.cwd(),
+    'extensions/auteura-browser-camera/background.js',
   );
   const source = readFileSync(backgroundScriptPath, 'utf8');
 

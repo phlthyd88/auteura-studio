@@ -16,7 +16,7 @@ import { useMemo, useState } from 'react';
 import { useRenderController } from '../controllers/RenderController';
 import { StudioDeckSection } from './StudioDeckSection';
 
-const extensionFolderPath = '/home/jlf88/auteura/extensions/auteura-browser-camera';
+const extensionFolderPath = 'extensions/auteura-browser-camera';
 
 interface BrowserSupportSnapshot {
   readonly browserLabel: string;
