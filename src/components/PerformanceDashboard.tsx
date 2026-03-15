@@ -125,10 +125,9 @@ export function PerformanceDashboard(): JSX.Element {
                 Est. Latency
               </Typography>
               <Typography variant="body2">
-                {(
-                  diagnostics.averageFrameTimeMs +
-                  (isAnyAIFeatureActive ? aiDiagnostics.averageProcessingDurationMs : 0)
-                ).toFixed(1)} ms
+                {!isAnyAIFeatureActive
+                  ? 'n/a'
+                  : `${(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms`}
               </Typography>
             </Box>
           </Box>
