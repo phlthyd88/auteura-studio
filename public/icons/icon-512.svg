@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Auteura Studio Icon 512</title>
+  <desc id="desc">Auteura key logo rendered as a square application icon.</desc>
+  <defs>
+    <linearGradient id="icon512-teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4DDBD4" />
+      <stop offset="30%" stop-color="#2B9994" />
+      <stop offset="100%" stop-color="#152929" />
+    </linearGradient>
+    <linearGradient id="icon512-copper" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8AA85" />
+      <stop offset="50%" stop-color="#C5815A" />
+      <stop offset="100%" stop-color="#8A5A3F" />
+    </linearGradient>
+    <radialGradient id="icon512-surface" cx="12%" cy="8%" r="90%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f3eee5" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#icon512-surface)" />
+  <path d="M0 512V178C74 110 153 76 238 76c126 0 214 53 274 117v319H0Z" fill="rgba(77,219,212,0.08)" />
+  <g transform="translate(103 42) scale(1.56)">
+    <path
+      fill="url(#icon512-teal)"
+      d="M 80,115.8
+         A 50,50 0 1,1 120,115.8
+         L 120,140
+         L 135,145
+         L 120,150
+         L 120,160
+         L 130,165
+         L 120,170
+         L 120,180
+         L 135,185
+         L 120,190
+         L 120,200
+         A 8,8 0 0,1 112,208
+         L 88,208
+         A 8,8 0 0,1 80,200
+         Z"
+    />
+    <g fill="none" stroke="url(#icon512-copper)" stroke-width="3" stroke-linecap="round">
+      <path d="M 84,196 L 84,70 A 16,16 0 0,1 116,70 L 116,196" />
+      <path d="M 90,196 L 90,70 A 10,10 0 0,1 110,70 L 110,196" />
+      <path d="M 96,196 L 96,70 A 4,4 0 0,1 104,70 L 104,196" />
+    </g>
+  </g>
+  <text
+    x="256"
+    y="452"
+    text-anchor="middle"
+    font-family="'Avenir Next', 'Trebuchet MS', 'Segoe UI', sans-serif"
+    font-size="48"
+    font-weight="800"
+    letter-spacing="0.16em"
+    fill="#1A5E5B"
+  >
+    AUTEURA
+  </text>
+</svg>

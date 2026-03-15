@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Auteura Studio Maskable Icon</title>
+  <desc id="desc">Auteura key mark with wide safe padding for maskable launchers.</desc>
+  <defs>
+    <linearGradient id="mask-teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4DDBD4" />
+      <stop offset="30%" stop-color="#2B9994" />
+      <stop offset="100%" stop-color="#152929" />
+    </linearGradient>
+    <linearGradient id="mask-copper" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8AA85" />
+      <stop offset="50%" stop-color="#C5815A" />
+      <stop offset="100%" stop-color="#8A5A3F" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="144" fill="#fffaf4" />
+  <circle cx="256" cy="256" r="196" fill="rgba(77,219,212,0.08)" />
+  <g transform="translate(97 70) scale(1.59)">
+    <path
+      fill="url(#mask-teal)"
+      d="M 80,115.8
+         A 50,50 0 1,1 120,115.8
+         L 120,140
+         L 135,145
+         L 120,150
+         L 120,160
+         L 130,165
+         L 120,170
+         L 120,180
+         L 135,185
+         L 120,190
+         L 120,200
+         A 8,8 0 0,1 112,208
+         L 88,208
+         A 8,8 0 0,1 80,200
+         Z"
+    />
+    <g fill="none" stroke="url(#mask-copper)" stroke-width="3" stroke-linecap="round">
+      <path d="M 84,196 L 84,70 A 16,16 0 0,1 116,70 L 116,196" />
+      <path d="M 90,196 L 90,70 A 10,10 0 0,1 110,70 L 110,196" />
+      <path d="M 96,196 L 96,70 A 4,4 0 0,1 104,70 L 104,196" />
+    </g>
+  </g>
+</svg>

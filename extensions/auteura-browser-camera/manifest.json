@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Auteura Browser Camera for Web Apps",
+  "version": "0.1.0",
+  "description": "Browser-camera bridge for routing Auteura into supported web apps.",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://localhost/*",
+    "https://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Auteura Browser Camera for Web Apps"
+  }
+}

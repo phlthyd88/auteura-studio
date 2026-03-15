@@ -1,0 +1,50 @@
+[
+  {
+    "id": "neutral-contrast",
+    "label": "Neutral Contrast",
+    "path": "/luts/neutral-contrast.cube",
+    "description": "Gentle contrast with a subtle film-style rolloff.",
+    "category": "neutral",
+    "tags": ["clean", "baseline", "daily"]
+  },
+  {
+    "id": "teal-gold",
+    "label": "Teal Gold",
+    "path": "/luts/teal-gold.cube",
+    "description": "Cool shadows and warm highlights for a stylized grade.",
+    "category": "stylized",
+    "tags": ["teal", "warm", "cinematic"]
+  },
+  {
+    "id": "clean-broadcast",
+    "label": "Clean Broadcast",
+    "path": "/luts/clean-broadcast.cube",
+    "description": "Tidy contrast and restrained saturation for crisp talking-head coverage.",
+    "category": "broadcast",
+    "tags": ["broadcast", "talk", "balanced"]
+  },
+  {
+    "id": "documentary-warm",
+    "label": "Documentary Warm",
+    "path": "/luts/documentary-warm.cube",
+    "description": "Subtle warmth and gentle density for natural reportage and interview work.",
+    "category": "neutral",
+    "tags": ["documentary", "warm", "natural"]
+  },
+  {
+    "id": "copper-noir",
+    "label": "Copper Noir",
+    "path": "/luts/copper-noir.cube",
+    "description": "Deepened shadows with copper highlights for moodier narrative setups.",
+    "category": "cinematic",
+    "tags": ["moody", "copper", "contrast"]
+  },
+  {
+    "id": "mint-glow",
+    "label": "Mint Glow",
+    "path": "/luts/mint-glow.cube",
+    "description": "Soft mint lift through highlights for airy beauty and lifestyle shots.",
+    "category": "stylized",
+    "tags": ["airy", "mint", "beauty"]
+  }
+]

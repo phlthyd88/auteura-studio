@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auteura Browser Camera</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-width: 280px;
+        background: #0d1820;
+        color: #f7f2ea;
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: rgba(247, 242, 234, 0.76);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      fieldset {
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      label {
+        display: block;
+        margin: 0 0 8px;
+        padding: 10px 12px;
+        border: 1px solid rgba(120, 173, 191, 0.18);
+        border-radius: 12px;
+        background: rgba(18, 36, 48, 0.92);
+        cursor: pointer;
+      }
+
+      label:last-child {
+        margin-bottom: 0;
+      }
+
+      input {
+        margin-right: 8px;
+      }
+
+      strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 13px;
+      }
+
+      span {
+        color: rgba(247, 242, 234, 0.72);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      #status {
+        margin-top: 12px;
+        min-height: 18px;
+        color: #78adbf;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Auteura Browser Camera</h1>
+      <p>Switch between a safe bridge-only mode and the experimental Meet media shim.</p>
+      <fieldset>
+        <label>
+          <input type="radio" name="meet-mode" value="bridge-only" />
+          <strong>Bridge only</strong>
+          <span>Registers only the isolated bridge. Use this to confirm Meet starts cleanly without the media shim.</span>
+        </label>
+        <label>
+          <input type="radio" name="meet-mode" value="full" />
+          <strong>Full Meet shim</strong>
+          <span>Registers the isolated bridge plus the MAIN-world `getUserMedia()` override for the synthetic camera.</span>
+        </label>
+      </fieldset>
+      <div id="status" aria-live="polite"></div>
+      <div id="diagnostics" style="margin-top: 12px; color: rgba(247, 242, 234, 0.76); font-size: 12px; line-height: 1.45;">
+        <div><strong style="display: inline;">Registered scripts:</strong> <span id="registered-scripts">Loading…</span></div>
+      </div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
