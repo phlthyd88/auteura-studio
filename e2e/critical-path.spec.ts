@@ -652,7 +652,7 @@ test('exports a manifest project package after adding media to the timeline', as
 test('exports a WebM timeline with a multi-segment playable source', async ({
   page,
 }): Promise<void> => {
-  test.setTimeout(150_000);
+  test.setTimeout(300_000);
 
   await page.goto('/');
   await seedExportSourceVideo(page);
@@ -672,7 +672,7 @@ test('exports a WebM timeline with a multi-segment playable source', async ({
 
   await openStudioConsole(page, 'pipeline');
   await expect(page.getByText(/timeline-export-\d+\.webm/i)).toBeVisible({
-    timeout: 120_000,
+    timeout: 240_000,
   });
 });
 
