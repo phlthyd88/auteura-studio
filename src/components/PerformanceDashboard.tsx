@@ -41,6 +41,7 @@ export function PerformanceDashboard(): JSX.Element {
   const isForceHighQuality =
     previewQualityOverride === 1 ||
     (mode === 'quality' && diagnostics.activeDegradationStage > 0);
+  const isAnyAIFeatureActive = Object.values(activeFeatures).some(Boolean);
 
   return (
     <Stack spacing={2}>
@@ -121,16 +122,20 @@ export function PerformanceDashboard(): JSX.Element {
               }}
             >
               <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block', mb: 0.2 }}>
-                FBO Memory
+                Est. Latency
               </Typography>
-              <Typography variant="body2">{formatMegabytes(diagnostics.fboMemoryUsageBytes)}</Typography>
+              <Typography variant="body2">
+                {!isAnyAIFeatureActive
+                  ? 'n/a'
+                  : `${(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms`}
+              </Typography>
             </Box>
           </Box>
           <Typography variant="body2" color="text.secondary">
             Benchmark: {diagnostics.isProfiling ? 'profiling…' : diagnostics.gpuBenchmarkMs === null ? 'unavailable' : `${diagnostics.gpuBenchmarkMs.toFixed(1)} ms GPU`} • CPU threads: {diagnostics.profilerHardwareConcurrency ?? 'n/a'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            WebGL frame: {diagnostics.webglRenderTimeMs.toFixed(2)} ms • avg frame: {diagnostics.averageFrameTimeMs.toFixed(2)} ms
+            WebGL frame: {diagnostics.webglRenderTimeMs.toFixed(2)} ms • avg frame: {diagnostics.averageFrameTimeMs.toFixed(2)} ms • GPU memory: {formatMegabytes(diagnostics.fboMemoryUsageBytes)}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Preview FPS: {diagnostics.averageFps.toFixed(1)} • long-frame ratio: {(diagnostics.longFrameRatio * 100).toFixed(0)}%

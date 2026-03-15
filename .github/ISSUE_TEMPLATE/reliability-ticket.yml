@@ -1,0 +1,75 @@
+name: Reliability Ticket
+description: Track a production-relevant defect, lifecycle weakness, or release hardening item.
+title: "[AUTEURA-XXX] "
+labels:
+  - reliability
+body:
+  - type: input
+    id: ticket_id
+    attributes:
+      label: Ticket ID
+      description: Use the next available ID from docs/tracking/release-stability-board.md
+      placeholder: AUTEURA-118
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: dropdown
+    id: release_gate
+    attributes:
+      label: Release gate
+      options:
+        - release_blocker
+        - pre_scale
+        - post_release
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the exact runtime defect or weakness.
+      placeholder: What is wrong, where, and under what conditions?
+    validations:
+      required: true
+  - type: textarea
+    id: failure_mode
+    attributes:
+      label: Production failure mode
+      description: Describe the realistic user-visible impact.
+      placeholder: Trigger, observable behavior, user impact.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the files, controllers, or services involved.
+      placeholder: src/controllers/...; src/services/...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: Define how this ticket will be considered fixed.
+      placeholder: "- [ ] ...\n- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation evidence required
+      description: Record the tests or runtime checks needed to close the ticket.
+      placeholder: Unit tests, Playwright, manual reproduction, profiling evidence.
+    validations:
+      required: true
