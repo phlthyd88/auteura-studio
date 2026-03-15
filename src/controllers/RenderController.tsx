@@ -12,6 +12,7 @@ import {
 import { useAudioContext } from '../context/AudioContext';
 import { useCameraController } from './CameraController';
 import { GLRenderer } from '../engine/GLRenderer';
+import type { GLRendererDiagnostics } from '../engine/GLRenderer';
 import {
   CompositionRenderAdapter,
   type CompositionRenderState,
@@ -37,6 +38,7 @@ import {
 import {
   defaultColorGradingSettings,
   defaultTransformSettings,
+  normalizeTransformSettings,
   type ColorGradingSettings,
   type LoadedLut,
   type LutDefinition,
@@ -143,42 +145,18 @@ const defaultTimelinePreviewState: TimelinePreviewState = {
   status: 'idle',
 };
 
-interface WebglDiagnostics {
-  readonly apiExposed: boolean;
-  readonly experimentalContextAvailable: boolean;
-  readonly webglContextAvailable: boolean;
-}
+type WebglDiagnostics = GLRendererDiagnostics;
 
 const defaultWebglDiagnostics: WebglDiagnostics = {
-  apiExposed: false,
+  apiExposed: typeof WebGLRenderingContext !== 'undefined',
+  backend: 'unavailable',
   experimentalContextAvailable: false,
+  message: null,
   webglContextAvailable: false,
 };
 
 function createRenderer(canvas: HTMLCanvasElement): GLRenderer {
   return createStudioRenderer(canvas);
-}
-
-function probeWebglDiagnostics(): WebglDiagnostics {
-  if (typeof document === 'undefined') {
-    return defaultWebglDiagnostics;
-  }
-
-  const probeCanvas = document.createElement('canvas');
-  const contextOptions: WebGLContextAttributes = {
-    alpha: false,
-    antialias: true,
-    preserveDrawingBuffer: false,
-  };
-
-  const webglContext = probeCanvas.getContext('webgl', contextOptions);
-  const experimentalContext = probeCanvas.getContext('experimental-webgl', contextOptions);
-
-  return {
-    apiExposed: typeof WebGLRenderingContext !== 'undefined',
-    experimentalContextAvailable: experimentalContext !== null,
-    webglContextAvailable: webglContext !== null,
-  };
 }
 
 export function RenderController({ children }: PropsWithChildren): JSX.Element {
@@ -202,6 +180,13 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
   const transformRef = useRef<TransformSettings>(defaultTransformSettings);
   const aiStateRef = useRef<RenderAIState>(defaultRenderAIState);
   const aiFrameStateRef = useRef<SharedAIFrameState>(getAIFrameState());
+  const performanceStateRef = useRef<{
+    readonly bypassHeavyPreviewPasses: boolean;
+    readonly qualityScale: number;
+  }>({
+    bypassHeavyPreviewPasses: false,
+    qualityScale: 1,
+  });
   const sceneAnalysisServiceRef = useRef<SceneAnalysisService | null>(null);
   const virtualOutputServiceRef = useRef<AuteuraVirtualOutputService>(
     new AuteuraVirtualOutputService(),
@@ -244,6 +229,8 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
   const [virtualOutputStatus, setVirtualOutputStatus] =
     useState<VirtualOutputStatusSnapshot>(defaultVirtualOutputSnapshot);
   const { capabilities, reportWebglFrameTime, setFboMemoryUsageBytes } = usePerformanceModeContext();
+  const reportWebglFrameTimeRef = useRef(reportWebglFrameTime);
+  const setFboMemoryUsageBytesRef = useRef(setFboMemoryUsageBytes);
   const virtualOutputDeliveryPolicy = useMemo(
     () => resolveVirtualOutputDeliveryPolicy(capabilities, virtualOutputStatus.clientCount),
     [capabilities, virtualOutputStatus.clientCount],
@@ -315,8 +302,9 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
   }, []);
 
   const setTransform = useCallback((nextSettings: TransformSettings): void => {
-    transformRef.current = nextSettings;
-    setTransformState(nextSettings);
+    const normalizedSettings = normalizeTransformSettings(nextSettings);
+    transformRef.current = normalizedSettings;
+    setTransformState(normalizedSettings);
   }, []);
 
   const cycleRenderMode = useCallback((): void => {
@@ -525,6 +513,21 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
     activeLutRef.current = activeLut;
   }, [activeLut]);
 
+  useEffect((): void => {
+    performanceStateRef.current = {
+      bypassHeavyPreviewPasses: capabilities.bypassHeavyPreviewPasses,
+      qualityScale: capabilities.qualityScale,
+    };
+  }, [capabilities.bypassHeavyPreviewPasses, capabilities.qualityScale]);
+
+  useEffect((): void => {
+    reportWebglFrameTimeRef.current = reportWebglFrameTime;
+  }, [reportWebglFrameTime]);
+
+  useEffect((): void => {
+    setFboMemoryUsageBytesRef.current = setFboMemoryUsageBytes;
+  }, [setFboMemoryUsageBytes]);
+
   useEffect((): (() => void) => {
     return virtualOutputServiceRef.current.subscribeStatus(setVirtualOutputStatus);
   }, []);
@@ -682,9 +685,8 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
 
   useEffect((): (() => void) | void => {
     const canvasElement = canvasRef.current;
-    const sourceVideoElement = videoRef.current;
 
-    if (canvasElement === null || sourceVideoElement === null) {
+    if (canvasElement === null) {
       return undefined;
     }
 
@@ -709,12 +711,13 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
         const nextRenderer = createRenderer(renderCanvasElement);
         nextRenderer.initialize();
         rendererRef.current = nextRenderer;
-        setRendererError(null);
-        setWebglDiagnostics(probeWebglDiagnostics());
+        const diagnostics = nextRenderer.getDiagnostics();
+        setRendererError(diagnostics.backend === 'webgl' ? null : diagnostics.message);
+        setWebglDiagnostics(diagnostics);
         return true;
       } catch (initializationError: unknown) {
         destroyRenderer();
-        setWebglDiagnostics(probeWebglDiagnostics());
+        setWebglDiagnostics(defaultWebglDiagnostics);
         setRendererError(
           initializationError instanceof Error
             ? initializationError.message
@@ -733,11 +736,13 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
 
       try {
         const previewState = timelinePreviewStateRef.current;
+        const sourceVideoElement = videoRef.current;
+        const performanceState = performanceStateRef.current;
         const basePerformanceState = {
-          bypassHeavyPreviewPasses: capabilities.bypassHeavyPreviewPasses,
+          bypassHeavyPreviewPasses: performanceState.bypassHeavyPreviewPasses,
           exportMode: false,
           isPlaybackActive: previewState.mode === 'timeline' && previewState.isPlaying,
-          qualityScale: capabilities.qualityScale,
+          qualityScale: performanceState.qualityScale,
         } as const;
         const adaptedRenderState: CompositionRenderState =
           previewState.mode === 'timeline'
@@ -777,8 +782,8 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
           timeSeconds: performance.now() / 1000,
           transform: transformRef.current,
         }, compositionAdapterRef.current);
-        reportWebglFrameTime(Math.max(0, performance.now() - frameStartMs));
-        setFboMemoryUsageBytes(rendererRef.current?.getMemoryUsageBytes() ?? 0);
+        reportWebglFrameTimeRef.current(Math.max(0, performance.now() - frameStartMs));
+        setFboMemoryUsageBytesRef.current(rendererRef.current?.getMemoryUsageBytes() ?? 0);
       } catch (renderError: unknown) {
         cancelRenderLoop();
         setRendererError(
@@ -798,7 +803,11 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       event.preventDefault();
       contextLostRef.current = true;
       setIsContextLost(true);
-      setWebglDiagnostics(probeWebglDiagnostics());
+      setWebglDiagnostics((currentDiagnostics): WebglDiagnostics => ({
+        ...currentDiagnostics,
+        backend: 'unavailable',
+        message: 'WebGL context lost. Waiting for restoration.',
+      }));
       cancelRenderLoop();
       destroyRenderer();
     }
@@ -826,7 +835,7 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       cancelRenderLoop();
       destroyRenderer();
     };
-  }, [capabilities.bypassHeavyPreviewPasses, capabilities.qualityScale, reportWebglFrameTime, setFboMemoryUsageBytes, videoRef]);
+  }, [videoRef]);
 
   const contextValue = useMemo<RenderControllerContextValue>(
     (): RenderControllerContextValue => ({

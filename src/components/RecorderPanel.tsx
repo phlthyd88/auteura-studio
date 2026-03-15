@@ -274,14 +274,16 @@ export function RecorderPanel(): JSX.Element {
             </Box>
           </Box>
           <Box
-            sx={{
-              px: 1.25,
-              py: 0.95,
-              borderRadius: 3,
-              border: '1px solid rgba(15, 79, 99, 0.08)',
-              backgroundColor: alpha('#fffaf4', 0.76),
-            }}
-          >
+              sx={{
+                px: 1.25,
+                py: 0.95,
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+              }}
+            >
             <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block', mb: 0.15 }}>
               Session Plan
             </Typography>
@@ -460,8 +462,10 @@ export function RecorderPanel(): JSX.Element {
                 px: 1.5,
                 py: 1,
                 borderRadius: 3,
-                border: '1px solid rgba(15, 79, 99, 0.08)',
-                backgroundColor: alpha('#fffaf4', 0.8),
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
               }}
             >
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

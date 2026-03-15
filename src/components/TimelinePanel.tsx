@@ -416,7 +416,17 @@ export function TimelinePanel(): JSX.Element {
 
       <StudioDeckSection kicker="Projects" title="Saved Projects" icon={<SaveRoundedIcon fontSize="small" />}>
         <Stack spacing={1}>
-        <List dense disablePadding sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.03)' }}>
+        <List
+          dense
+          disablePadding
+          sx={{
+            borderRadius: 2,
+            overflow: 'hidden',
+            border: '1px solid rgba(120, 173, 191, 0.16)',
+            background:
+              'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+          }}
+        >
           {projectList.length === 0 ? (
             <StudioEmptyState
               title="No saved projects yet"
@@ -558,8 +568,11 @@ export function TimelinePanel(): JSX.Element {
               key={mediaItem.id}
               sx={{
                 p: 1.25,
-                borderRadius: 2,
-                bgcolor: 'rgba(255,255,255,0.04)',
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
               }}
               variant="outlined"
             >
@@ -604,11 +617,11 @@ export function TimelinePanel(): JSX.Element {
                 cursor: 'pointer',
                 border: '1px solid',
                 borderColor:
-                  track.id === selectedTrackId ? 'primary.main' : 'rgba(15, 79, 99, 0.08)',
+                  track.id === selectedTrackId ? 'primary.main' : 'rgba(120, 173, 191, 0.16)',
                 bgcolor:
                   track.id === selectedTrackId
                     ? alpha('#c06e28', 0.12)
-                    : alpha('#fffaf4', 0.72),
+                    : 'rgba(12, 31, 39, 0.82)',
               }}
             >
               <Stack spacing={1}>
@@ -682,11 +695,11 @@ export function TimelinePanel(): JSX.Element {
                           borderRadius: 999,
                           border: '1px solid',
                           borderColor:
-                            clip.id === selectedClip?.id ? 'primary.main' : 'rgba(15, 79, 99, 0.12)',
+                            clip.id === selectedClip?.id ? 'primary.main' : 'rgba(120, 173, 191, 0.16)',
                           bgcolor:
                             clip.id === selectedClip?.id
                               ? alpha('#c06e28', 0.18)
-                              : alpha('#fffaf4', 0.7),
+                              : 'rgba(20, 44, 54, 0.9)',
                           opacity: track.muted && !track.solo ? 0.55 : 1,
                           minWidth: Math.max(120, Math.round((clip.durationMs / 1000) * 56 * zoomLevel)),
                         }}

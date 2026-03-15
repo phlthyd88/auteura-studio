@@ -144,11 +144,12 @@ export function AIPanel(): JSX.Element {
                 border:
                   currentCameraAssistPresetId === preset.id
                     ? '1px solid rgba(32,194,197,0.44)'
-                    : '1px solid rgba(15,79,99,0.08)',
-                bgcolor: alpha(
-                  currentCameraAssistPresetId === preset.id ? '#0e5970' : '#fffaf4',
-                  currentCameraAssistPresetId === preset.id ? 0.08 : 0.62,
-                ),
+                    : '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  currentCameraAssistPresetId === preset.id
+                    ? 'linear-gradient(180deg, rgba(14, 89, 112, 0.22) 0%, rgba(12, 31, 39, 0.82) 100%)'
+                    : 'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
               }}
             >
               <Stack spacing={0.9}>

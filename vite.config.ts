@@ -6,6 +6,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const sourceDirectory = fileURLToPath(new URL('./src', import.meta.url));
 const appBuildId = `${process.env.npm_package_version ?? '0.0.0'}-${new Date().toISOString()}`;
+const isPlaywrightSession = process.env.PLAYWRIGHT === 'true';
 
 const htmlBuildStampPlugin: PluginOption = {
   name: 'auteura-html-build-stamp',
@@ -30,11 +31,12 @@ const devContentSecurityPolicy = [
 
 const pwaPlugin: PluginOption = VitePWA({
   registerType: 'autoUpdate',
-  injectRegister: 'auto',
+  injectRegister: false,
   manifest: false,
   includeAssets: ['icons/icon-192.svg', 'icons/icon-512.svg', 'icons/icon-maskable.svg'],
   workbox: {
     globPatterns: ['**/*.{css,html,ico,js,json,png,svg,webmanifest,woff,woff2,wasm,onnx,task,cube}'],
+    maximumFileSizeToCacheInBytes: 13 * 1024 * 1024,
     runtimeCaching: [
       {
         urlPattern: ({ url }): boolean =>
@@ -134,11 +136,15 @@ function getPackageName(id: string): string | null {
 }
 
 export default defineConfig({
+  ...(isPlaywrightSession ? { cacheDir: 'node_modules/.vite-playwright' } : {}),
   define: {
     __AUTEURA_BUILD_ID__: JSON.stringify(appBuildId),
   },
   plugins: [react(), htmlBuildStampPlugin, pwaPlugin],
   publicDir: 'public',
+  optimizeDeps: {
+    force: isPlaywrightSession,
+  },
   worker: {
     format: 'iife',
   },

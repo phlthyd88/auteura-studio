@@ -2,7 +2,7 @@ import GraphicEqRoundedIcon from '@mui/icons-material/GraphicEqRounded';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { useAudioContext } from '../context/AudioContext';
 import { StudioDeckSection } from './StudioDeckSection';
 
@@ -40,7 +40,7 @@ function MeterBar({
           height: 10,
           borderRadius: 999,
           overflow: 'hidden',
-          bgcolor: 'rgba(15,79,99,0.08)',
+          bgcolor: 'rgba(255,255,255,0.06)',
           position: 'relative',
         }}
       >
@@ -81,13 +81,19 @@ function MeterBlock({
   readonly meter: ReturnType<typeof useAudioContext>['audioMeters']['liveInput'];
   readonly title: string;
 }): JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       sx={{
         p: 1.4,
-        borderRadius: '18px',
-        border: '1px solid rgba(15,79,99,0.08)',
-        bgcolor: alpha('#fffaf4', 0.64),
+        borderRadius: '20px',
+        border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+        background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+          theme.palette.auteura.surface,
+          0.8,
+        )} 100%)`,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
       }}
     >
       <Stack spacing={1}>
@@ -101,11 +107,22 @@ function MeterBlock({
           <Typography
             variant="caption"
             sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               px: 0.9,
               py: 0.35,
               borderRadius: 999,
-              bgcolor: meter.active ? alpha(accentColor, 0.14) : 'rgba(15,79,99,0.08)',
+              minWidth: 118,
+              whiteSpace: 'nowrap',
+              bgcolor: meter.active
+                ? alpha(accentColor, 0.14)
+                : alpha(theme.palette.auteura.surfaceElevated, 0.72),
               color: meter.active ? accentColor : 'text.secondary',
+              border: `1px solid ${alpha(
+                meter.active ? accentColor : theme.palette.auteura.borderSubtle,
+                meter.active ? 0.24 : 0.92,
+              )}`,
             }}
           >
             {meter.active ? 'Live' : availableLabel}

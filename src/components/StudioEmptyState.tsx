@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { BrandMark } from './branding/BrandMark';
 
 interface StudioEmptyStateProps {
@@ -13,15 +13,20 @@ export function StudioEmptyState({
   body,
   title,
 }: StudioEmptyStateProps): JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       sx={{
         px: 2,
         py: 2.5,
         borderRadius: 4,
-        border: '1px dashed rgba(15, 79, 99, 0.18)',
-        background:
-          'linear-gradient(180deg, rgba(255,250,244,0.88) 0%, rgba(238,246,246,0.7) 100%)',
+        border: `1px dashed ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+        background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+          theme.palette.auteura.surface,
+          0.82,
+        )} 100%)`,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
       }}
     >
       <Stack spacing={1.2} alignItems="flex-start">
@@ -33,7 +38,8 @@ export function StudioEmptyState({
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 3,
-            backgroundColor: alpha('#0e5970', 0.08),
+            backgroundColor: alpha(theme.palette.auteura.surfaceElevated, 0.78),
+            border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
           }}
         >
           <BrandMark size={32} />

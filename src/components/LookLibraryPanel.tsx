@@ -18,6 +18,7 @@ import type { LookPresetRecord } from '../types/lookPreset';
 interface LookLibraryPanelProps {
   readonly activeLutDefinition: LutDefinition | null;
   readonly bundledLuts: readonly LutDefinition[];
+  readonly embedded?: boolean;
   readonly importedLuts: readonly LutDefinition[];
   readonly isLutImporting: boolean;
   readonly isLutLoading: boolean;
@@ -42,19 +43,22 @@ function LibraryGroup({
   readonly title: string;
 }): JSX.Element {
   const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
 
   return (
     <Box
       sx={{
         p: 1.5,
-        borderRadius: '18px',
-        border: `1px solid ${isDark ? 'rgba(120, 173, 191, 0.16)' : 'rgba(15, 79, 99, 0.08)'}`,
-        bgcolor: alpha(theme.palette.background.paper, isDark ? 0.3 : 0.46),
+        borderRadius: '20px',
+        border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+        background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+          theme.palette.auteura.surface,
+          0.8,
+        )} 100%)`,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
       }}
     >
       <Stack spacing={1.1}>
-        <Typography variant="overline" sx={{ color: 'secondary.dark' }}>
+        <Typography variant="overline" sx={{ color: 'secondary.light' }}>
           {title}
         </Typography>
         {children}
@@ -76,6 +80,7 @@ function formatLutCategory(
 export function LookLibraryPanel({
   activeLutDefinition,
   bundledLuts,
+  embedded = false,
   importedLuts,
   isLutImporting,
   isLutLoading,
@@ -91,6 +96,7 @@ export function LookLibraryPanel({
   onLoadLut,
   onSaveLookPreset,
 }: LookLibraryPanelProps): JSX.Element {
+  const theme = useTheme();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [presetName, setPresetName] = useState<string>('');
   const [presetError, setPresetError] = useState<string | null>(null);
@@ -119,12 +125,18 @@ export function LookLibraryPanel({
       });
   }
 
-  return (
-    <StudioDeckSection
-      kicker="Look"
-      title="Look Library"
-      icon={<TuneRoundedIcon fontSize="small" />}
-      actions={
+  const panelContent = (
+    <Stack spacing={1.5}>
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+        {embedded ? (
+          <Typography variant="body2" color="text.secondary">
+            Store bundled looks, imported LUTs, and reusable grade presets in one place.
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            Build a reusable look system with bundled LUTs, imported LUTs, and saved grading presets.
+          </Typography>
+        )}
         <Stack direction="row" spacing={1} alignItems="center">
           {isLutLoading || isLutImporting || isLookPresetSaving ? (
             <CircularProgress size={18} />
@@ -146,11 +158,13 @@ export function LookLibraryPanel({
             Import LUT
           </Button>
         </Stack>
-      }
-    >
+      </Stack>
+
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
-          Build a reusable look system with bundled LUTs, imported LUTs, and saved grading presets.
+          {activeLutDefinition === null
+            ? 'No active LUT. Load a bundled or imported look, or save the current grade as a preset.'
+            : `Active LUT: ${activeLutDefinition.label}`}
         </Typography>
 
         <LibraryGroup title="Active Look">
@@ -168,7 +182,8 @@ export function LookLibraryPanel({
                 sx={{
                   p: 1.2,
                   borderRadius: '16px',
-                  border: '1px solid rgba(15, 79, 99, 0.08)',
+                  border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.92)}`,
+                  background: alpha(theme.palette.auteura.surfaceElevated, 0.42),
                 }}
               >
                 <Typography variant="subtitle2">{activeLutDefinition.label}</Typography>
@@ -216,6 +231,12 @@ export function LookLibraryPanel({
                   justifyContent="space-between"
                   alignItems="center"
                   spacing={1}
+                  sx={{
+                    p: 1.1,
+                    borderRadius: '16px',
+                    border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.92)}`,
+                    background: alpha(theme.palette.auteura.surfaceElevated, 0.42),
+                  }}
                 >
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="body2" noWrap>
@@ -264,6 +285,12 @@ export function LookLibraryPanel({
                 justifyContent="space-between"
                 alignItems="center"
                 spacing={1}
+                sx={{
+                  p: 1.1,
+                  borderRadius: '16px',
+                  border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.92)}`,
+                  background: alpha(theme.palette.auteura.surfaceElevated, 0.42),
+                }}
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="body2" noWrap>
@@ -337,6 +364,12 @@ export function LookLibraryPanel({
                     justifyContent="space-between"
                     alignItems="center"
                     spacing={1}
+                    sx={{
+                      p: 1.1,
+                      borderRadius: '16px',
+                      border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.92)}`,
+                      background: alpha(theme.palette.auteura.surfaceElevated, 0.42),
+                    }}
                   >
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body2" noWrap>
@@ -377,6 +410,20 @@ export function LookLibraryPanel({
           </Stack>
         </LibraryGroup>
       </Stack>
+    </Stack>
+  );
+
+  if (embedded) {
+    return panelContent;
+  }
+
+  return (
+    <StudioDeckSection
+      kicker="Look"
+      title="Look Library"
+      icon={<TuneRoundedIcon fontSize="small" />}
+    >
+      {panelContent}
     </StudioDeckSection>
   );
 }

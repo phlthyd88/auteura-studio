@@ -64,6 +64,20 @@ export interface MediaItemDescriptor {
   readonly width?: number;
 }
 
+export interface ChunkedRecordingMediaDraft {
+  readonly captureMode: 'recording';
+  readonly createdAt: number;
+  readonly height?: number;
+  readonly id: string;
+  readonly mimeType: string;
+  readonly name: string;
+  readonly origin: 'capture';
+  readonly thumbnail?: string;
+  readonly timestamp: number;
+  readonly type: 'video';
+  readonly width?: number;
+}
+
 interface StoredBlobMediaItem {
   readonly blob: Blob;
   readonly captureMode: MediaItem['captureMode'];
@@ -79,6 +93,41 @@ interface StoredBlobMediaItem {
   readonly thumbnail?: string;
   readonly timestamp: number;
   readonly type: MediaItem['type'];
+  readonly width?: number;
+}
+
+interface StoredCopiedMediaItem {
+  readonly captureMode: MediaItem['captureMode'];
+  readonly createdAt: number;
+  readonly durationMs?: number;
+  readonly height?: number;
+  readonly id: string;
+  readonly kind: 'copied-indexeddb';
+  readonly mimeType: string;
+  readonly name: string;
+  readonly origin: MediaItem['origin'];
+  readonly sizeBytes: number;
+  readonly thumbnail?: string;
+  readonly timestamp: number;
+  readonly type: MediaItem['type'];
+  readonly width?: number;
+}
+
+interface StoredChunkedRecordingMediaItem {
+  readonly captureMode: 'recording';
+  readonly chunkCount: number;
+  readonly createdAt: number;
+  readonly durationMs?: number;
+  readonly height?: number;
+  readonly id: string;
+  readonly kind: 'chunked-recording';
+  readonly mimeType: string;
+  readonly name: string;
+  readonly origin: 'capture';
+  readonly sizeBytes: number;
+  readonly thumbnail?: string;
+  readonly timestamp: number;
+  readonly type: 'video';
   readonly width?: number;
 }
 
@@ -101,23 +150,68 @@ interface StoredFileHandleMediaItem {
   readonly width?: number;
 }
 
-type StoredMediaItem = StoredBlobMediaItem | StoredFileHandleMediaItem;
+type StoredMediaItem =
+  | StoredCopiedMediaItem
+  | StoredChunkedRecordingMediaItem
+  | StoredFileHandleMediaItem;
+
+type LegacyStoredMediaItem = StoredBlobMediaItem | StoredMediaItem;
+
+interface StoredRecordingChunk {
+  readonly blob: Blob;
+  readonly recordingId: string;
+  readonly sequence: number;
+  readonly sizeBytes: number;
+}
+
+interface StoredMediaBlob {
+  readonly blob: Blob;
+  readonly mediaId: string;
+}
+
+interface StoredMigrationAudit {
+  readonly completedAt: number;
+  readonly fromVersion: number;
+  readonly id: string;
+  readonly migratedBlobCount: number;
+  readonly migratedBytes: number;
+  readonly recordSetChecksum: string;
+  readonly verifiedBlobCount: number;
+}
 
 interface AuteuraDatabaseSchema extends DBSchema {
   media: {
     indexes: {
-      kind: StoredMediaItem['kind'];
+      kind: LegacyStoredMediaItem['kind'];
       timestamp: number;
       type: MediaItem['type'];
     };
     key: string;
-    value: StoredMediaItem;
+    value: LegacyStoredMediaItem;
+  };
+  mediaBlobs: {
+    key: string;
+    value: StoredMediaBlob;
+  };
+  migrationAudit: {
+    key: string;
+    value: StoredMigrationAudit;
+  };
+  recordingChunks: {
+    indexes: {
+      recordingId: string;
+    };
+    key: [string, number];
+    value: StoredRecordingChunk;
   };
 }
 
 const databaseName = 'AuteuraDB';
 const mediaStoreName = 'media';
-const databaseVersion = 3;
+const mediaBlobStoreName = 'mediaBlobs';
+const migrationAuditStoreName = 'migrationAudit';
+const recordingChunkStoreName = 'recordingChunks';
+const databaseVersion = 6;
 const fallbackStorageBudgetBytes = 512 * 1024 * 1024;
 
 let databasePromise: Promise<IDBPDatabase<AuteuraDatabaseSchema>> | null = null;
@@ -198,7 +292,7 @@ function buildNormalizedLegacyMediaItem(item: MediaItem | LegacyMediaItem): Medi
   };
 }
 
-function buildMediaItemDescriptor(item: StoredMediaItem | LegacyMediaItem): MediaItemDescriptor {
+function buildMediaItemDescriptor(item: LegacyStoredMediaItem | LegacyMediaItem): MediaItemDescriptor {
   if ('kind' in item && item.kind === 'file-handle') {
     return {
       captureMode: item.captureMode,
@@ -213,6 +307,44 @@ function buildMediaItemDescriptor(item: StoredMediaItem | LegacyMediaItem): Medi
       origin: 'imported',
       sizeBytes: item.sizeBytes,
       storageKind: 'file-system-handle',
+      timestamp: item.timestamp,
+      type: item.type,
+      ...(item.width === undefined ? {} : { width: item.width }),
+    };
+  }
+
+  if ('kind' in item && item.kind === 'chunked-recording') {
+    return {
+      captureMode: item.captureMode,
+      createdAt: item.createdAt,
+      ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+      ...(item.height === undefined ? {} : { height: item.height }),
+      id: item.id,
+      isAvailable: true,
+      mimeType: item.mimeType,
+      name: item.name,
+      origin: item.origin,
+      sizeBytes: item.sizeBytes,
+      storageKind: 'copied-indexeddb',
+      timestamp: item.timestamp,
+      type: item.type,
+      ...(item.width === undefined ? {} : { width: item.width }),
+    };
+  }
+
+  if ('kind' in item && item.kind === 'copied-indexeddb') {
+    return {
+      captureMode: item.captureMode,
+      createdAt: item.createdAt,
+      ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+      ...(item.height === undefined ? {} : { height: item.height }),
+      id: item.id,
+      isAvailable: true,
+      mimeType: item.mimeType,
+      name: item.name,
+      origin: item.origin,
+      sizeBytes: item.sizeBytes,
+      storageKind: 'copied-indexeddb',
       timestamp: item.timestamp,
       type: item.type,
       ...(item.width === undefined ? {} : { width: item.width }),
@@ -239,15 +371,14 @@ function buildMediaItemDescriptor(item: StoredMediaItem | LegacyMediaItem): Medi
   };
 }
 
-function buildStoredBlobMediaItem(item: MediaItem): StoredBlobMediaItem {
+function buildStoredCopiedMediaItem(item: MediaItem): StoredCopiedMediaItem {
   return {
-    blob: item.blob,
     captureMode: item.captureMode,
     createdAt: item.createdAt,
     ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
     ...(item.height === undefined ? {} : { height: item.height }),
     id: item.id,
-    kind: 'blob',
+    kind: 'copied-indexeddb',
     mimeType: item.mimeType,
     name: item.name,
     origin: item.origin,
@@ -259,13 +390,66 @@ function buildStoredBlobMediaItem(item: MediaItem): StoredBlobMediaItem {
   };
 }
 
+function buildMigrationRecordChecksum(
+  records: readonly {
+    readonly id: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  }[],
+): string {
+  let checksum = 2166136261;
+  const normalizedRecordSet = [...records].sort((left, right): number =>
+    left.id.localeCompare(right.id),
+  );
+
+  for (const record of normalizedRecordSet) {
+    const payload = `${record.id}:${record.mimeType}:${record.sizeBytes}`;
+
+    for (let index = 0; index < payload.length; index += 1) {
+      checksum ^= payload.charCodeAt(index);
+      checksum = Math.imul(checksum, 16777619);
+    }
+  }
+
+  return `fnv1a-${(checksum >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function buildStoredChunkedRecordingMediaItem(
+  item: ChunkedRecordingMediaDraft,
+): StoredChunkedRecordingMediaItem {
+  return {
+    captureMode: item.captureMode,
+    chunkCount: 0,
+    createdAt: item.createdAt,
+    ...(item.height === undefined ? {} : { height: item.height }),
+    id: item.id,
+    kind: 'chunked-recording',
+    mimeType: item.mimeType,
+    name: item.name,
+    origin: item.origin,
+    sizeBytes: 0,
+    ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+    timestamp: item.timestamp,
+    type: item.type,
+    ...(item.width === undefined ? {} : { width: item.width }),
+  };
+}
+
 function isStoredBlobMediaItem(
-  item: StoredMediaItem | LegacyMediaItem,
+  item: LegacyStoredMediaItem | LegacyMediaItem,
 ): item is StoredBlobMediaItem | LegacyMediaItem {
   return !('kind' in item) || item.kind === 'blob';
 }
 
-function calculateStoredRecordBudgetBytes(item: StoredMediaItem | LegacyMediaItem): number {
+function calculateStoredRecordBudgetBytes(item: LegacyStoredMediaItem | LegacyMediaItem): number {
+  if ('kind' in item && item.kind === 'chunked-recording') {
+    return item.sizeBytes;
+  }
+
+  if ('kind' in item && item.kind === 'copied-indexeddb') {
+    return item.sizeBytes;
+  }
+
   if (!isStoredBlobMediaItem(item)) {
     return 0;
   }
@@ -282,8 +466,13 @@ function getDatabase(): Promise<IDBPDatabase<AuteuraDatabaseSchema>> {
       terminated(): void {
         databasePromise = null;
       },
-      upgrade(database, _oldVersion, _newVersion, transaction): void {
+      // `idb` upgrade handlers can safely await request promises within the active upgrade transaction.
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
+      async upgrade(database, _oldVersion, _newVersion, transaction): Promise<void> {
         let mediaStore;
+        let mediaBlobStore;
+        let migrationAuditStore;
+        let recordingChunkStore;
 
         if (!database.objectStoreNames.contains(mediaStoreName)) {
           mediaStore = database.createObjectStore(mediaStoreName, {
@@ -304,6 +493,109 @@ function getDatabase(): Promise<IDBPDatabase<AuteuraDatabaseSchema>> {
         if (!mediaStore.indexNames.contains('kind')) {
           mediaStore.createIndex('kind', 'kind');
         }
+
+        if (!database.objectStoreNames.contains(mediaBlobStoreName)) {
+          mediaBlobStore = database.createObjectStore(mediaBlobStoreName, {
+            keyPath: 'mediaId',
+          });
+        } else {
+          mediaBlobStore = transaction.objectStore(mediaBlobStoreName);
+        }
+
+        if (!database.objectStoreNames.contains(migrationAuditStoreName)) {
+          migrationAuditStore = database.createObjectStore(migrationAuditStoreName, {
+            keyPath: 'id',
+          });
+        } else {
+          migrationAuditStore = transaction.objectStore(migrationAuditStoreName);
+        }
+
+        if (!database.objectStoreNames.contains(recordingChunkStoreName)) {
+          recordingChunkStore = database.createObjectStore(recordingChunkStoreName, {
+            keyPath: ['recordingId', 'sequence'],
+          });
+        } else {
+          recordingChunkStore = transaction.objectStore(recordingChunkStoreName);
+        }
+
+        if (!recordingChunkStore.indexNames.contains('recordingId')) {
+          recordingChunkStore.createIndex('recordingId', 'recordingId');
+        }
+
+        if (_oldVersion < 5) {
+          const migratedRecords: {
+            id: string;
+            mimeType: string;
+            sizeBytes: number;
+          }[] = [];
+          let cursor = await mediaStore.openCursor();
+
+          while (cursor !== null) {
+            const value = cursor.value as LegacyStoredMediaItem | LegacyMediaItem;
+
+            if (!('kind' in value) || value.kind === 'blob') {
+              const normalizedItem = buildNormalizedLegacyMediaItem(
+                'kind' in value
+                  ? {
+                      ...value,
+                      blob: value.blob,
+                      isAvailable: true,
+                      storageKind: 'copied-indexeddb',
+                    }
+                  : value,
+              );
+              await mediaBlobStore.put({
+                blob: normalizedItem.blob,
+                mediaId: normalizedItem.id,
+              });
+              await cursor.update(buildStoredCopiedMediaItem(normalizedItem));
+              migratedRecords.push({
+                id: normalizedItem.id,
+                mimeType: normalizedItem.mimeType,
+                sizeBytes: normalizedItem.sizeBytes,
+              });
+            }
+
+            cursor = await cursor.continue();
+          }
+
+          let verifiedBlobCount = 0;
+
+          for (const migratedRecord of migratedRecords) {
+            const migratedMetadata = await mediaStore.get(migratedRecord.id);
+            const migratedBlob = await mediaBlobStore.get(migratedRecord.id);
+
+            if (migratedMetadata?.kind !== 'copied-indexeddb') {
+              throw new Error(
+                `Media library migration failed to rewrite metadata for ${migratedRecord.id}.`,
+              );
+            }
+
+            if (
+              migratedBlob === undefined ||
+              migratedBlob.blob.size !== migratedRecord.sizeBytes
+            ) {
+              throw new Error(
+                `Media library migration failed to verify blob payload for ${migratedRecord.id}.`,
+              );
+            }
+
+            verifiedBlobCount += 1;
+          }
+
+          await migrationAuditStore.put({
+            completedAt: Date.now(),
+            fromVersion: _oldVersion,
+            id: 'media-split-v5',
+            migratedBlobCount: migratedRecords.length,
+            migratedBytes: migratedRecords.reduce(
+              (totalBytes, record): number => totalBytes + record.sizeBytes,
+              0,
+            ),
+            recordSetChecksum: buildMigrationRecordChecksum(migratedRecords),
+            verifiedBlobCount,
+          });
+        }
       },
     }).catch((error: unknown): never => {
       databasePromise = null;
@@ -317,7 +609,7 @@ function getDatabase(): Promise<IDBPDatabase<AuteuraDatabaseSchema>> {
 }
 
 async function resolveStoredMediaItem(
-  item: StoredMediaItem | LegacyMediaItem,
+  item: LegacyStoredMediaItem | LegacyMediaItem,
   mode: 'library' | 'strict',
 ): Promise<MediaItem | null> {
   if ('kind' in item && item.kind === 'file-handle') {
@@ -375,6 +667,111 @@ async function resolveStoredMediaItem(
     }
   }
 
+  if ('kind' in item && item.kind === 'chunked-recording') {
+    if (mode === 'library') {
+      return {
+        blob: new Blob([], { type: item.mimeType }),
+        captureMode: item.captureMode,
+        createdAt: item.createdAt,
+        ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+        ...(item.height === undefined ? {} : { height: item.height }),
+        id: item.id,
+        isAvailable: true,
+        mimeType: item.mimeType,
+        name: item.name,
+        origin: item.origin,
+        sizeBytes: item.sizeBytes,
+        storageKind: 'copied-indexeddb',
+        ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+        timestamp: item.timestamp,
+        type: item.type,
+        ...(item.width === undefined ? {} : { width: item.width }),
+      };
+    }
+
+    const database = await getDatabase();
+    const chunkItems = await database.getAllFromIndex(
+      recordingChunkStoreName,
+      'recordingId',
+      item.id,
+    );
+    const orderedChunks = [...chunkItems].sort(
+      (left: StoredRecordingChunk, right: StoredRecordingChunk): number =>
+        left.sequence - right.sequence,
+    );
+
+    return {
+      blob: new Blob(
+        orderedChunks.map((chunk: StoredRecordingChunk): Blob => chunk.blob),
+        { type: item.mimeType },
+      ),
+      captureMode: item.captureMode,
+      createdAt: item.createdAt,
+      ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+      ...(item.height === undefined ? {} : { height: item.height }),
+      id: item.id,
+      isAvailable: true,
+      mimeType: item.mimeType,
+      name: item.name,
+      origin: item.origin,
+      sizeBytes: item.sizeBytes,
+      storageKind: 'copied-indexeddb',
+      ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+      timestamp: item.timestamp,
+      type: item.type,
+      ...(item.width === undefined ? {} : { width: item.width }),
+    };
+  }
+
+  if ('kind' in item && item.kind === 'copied-indexeddb') {
+    if (mode === 'library') {
+      return {
+        blob: new Blob([], { type: item.mimeType }),
+        captureMode: item.captureMode,
+        createdAt: item.createdAt,
+        ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+        ...(item.height === undefined ? {} : { height: item.height }),
+        id: item.id,
+        isAvailable: true,
+        mimeType: item.mimeType,
+        name: item.name,
+        origin: item.origin,
+        sizeBytes: item.sizeBytes,
+        storageKind: 'copied-indexeddb',
+        ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+        timestamp: item.timestamp,
+        type: item.type,
+        ...(item.width === undefined ? {} : { width: item.width }),
+      };
+    }
+
+    const database = await getDatabase();
+    const storedBlob = await database.get(mediaBlobStoreName, item.id);
+
+    if (storedBlob === undefined) {
+      return null;
+    }
+
+    return {
+      blob: storedBlob.blob,
+      captureMode: item.captureMode,
+      createdAt: item.createdAt,
+      ...(item.durationMs === undefined ? {} : { durationMs: item.durationMs }),
+      ...(item.height === undefined ? {} : { height: item.height }),
+      id: item.id,
+      isAvailable: true,
+      mimeType: item.mimeType,
+      name: item.name,
+      origin: item.origin,
+      sizeBytes: item.sizeBytes,
+      storageKind: 'copied-indexeddb',
+      ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+      timestamp: item.timestamp,
+      type: item.type,
+      ...(item.width === undefined ? {} : { width: item.width }),
+    };
+  }
+
   return buildNormalizedLegacyMediaItem(
     'kind' in item ? {
       ...item,
@@ -391,12 +788,30 @@ async function getStoredItemsInternal(
   const database = await getDatabase();
   const storedItems = await database.getAll(mediaStoreName);
   const resolvedItems = await Promise.all(
-    storedItems.map((item: StoredMediaItem): Promise<MediaItem | null> =>
+    storedItems.map((item: LegacyStoredMediaItem): Promise<MediaItem | null> =>
       resolveStoredMediaItem(item, mode),
     ),
   );
 
   return resolvedItems.filter((item: MediaItem | null): item is MediaItem => item !== null);
+}
+
+async function reduceStoredMediaItems<T>(
+  database: IDBPDatabase<AuteuraDatabaseSchema>,
+  reducer: (accumulator: T, item: LegacyStoredMediaItem) => T,
+  initialValue: T,
+): Promise<T> {
+  const transaction = database.transaction(mediaStoreName, 'readonly');
+  let accumulator = initialValue;
+  let cursor = await transaction.store.openCursor();
+
+  while (cursor !== null) {
+    accumulator = reducer(accumulator, cursor.value);
+    cursor = await cursor.continue();
+  }
+
+  await transaction.done;
+  return accumulator;
 }
 
 async function getStorageBudget(): Promise<{
@@ -451,19 +866,35 @@ async function enforceStorageBudget(
     throw new Error('The import exceeds the current browser storage budget.');
   }
 
-  const existingItems = await database.getAll(mediaStoreName);
-  let currentUsage = existingItems.reduce(
-    (totalBytes: number, item: StoredMediaItem): number =>
-      totalBytes + calculateStoredRecordBudgetBytes(item),
-    0,
-  );
+  const storageBudgetSnapshot = await reduceStoredMediaItems(
+    database,
+    (
+      snapshot: {
+        currentUsage: number;
+        itemsByAge: Array<StoredCopiedMediaItem | StoredChunkedRecordingMediaItem>;
+      },
+      item: LegacyStoredMediaItem,
+    ) => {
+      snapshot.currentUsage += calculateStoredRecordBudgetBytes(item);
 
-  const itemsByAge = existingItems
-    .filter((item: StoredMediaItem): item is StoredBlobMediaItem => item.kind === 'blob')
-    .sort(
-      (left: StoredBlobMediaItem, right: StoredBlobMediaItem): number =>
-        left.timestamp - right.timestamp,
-    );
+      if ('kind' in item && (item.kind === 'copied-indexeddb' || item.kind === 'chunked-recording')) {
+        snapshot.itemsByAge.push(item);
+      }
+
+      return snapshot;
+    },
+    {
+      currentUsage: 0,
+      itemsByAge: [],
+    },
+  );
+  let currentUsage = storageBudgetSnapshot.currentUsage;
+  const itemsByAge = storageBudgetSnapshot.itemsByAge.sort(
+    (
+      left: StoredCopiedMediaItem | StoredChunkedRecordingMediaItem,
+      right: StoredCopiedMediaItem | StoredChunkedRecordingMediaItem,
+    ): number => left.timestamp - right.timestamp,
+  );
 
   while (currentUsage + incomingBytes > maxAllowedBytes && itemsByAge.length > 0) {
     const oldestItem = itemsByAge.shift();
@@ -472,7 +903,26 @@ async function enforceStorageBudget(
       break;
     }
 
-    await database.delete(mediaStoreName, oldestItem.id);
+    if (oldestItem.kind === 'chunked-recording') {
+      const chunkKeys = await database.getAllKeysFromIndex(
+        recordingChunkStoreName,
+        'recordingId',
+        oldestItem.id,
+      );
+      const transaction = database.transaction([mediaStoreName, recordingChunkStoreName], 'readwrite');
+      await Promise.all(
+        chunkKeys.map((chunkKey: [string, number]): Promise<void> =>
+          transaction.objectStore(recordingChunkStoreName).delete(chunkKey),
+        ),
+      );
+      await transaction.objectStore(mediaStoreName).delete(oldestItem.id);
+      await transaction.done;
+    } else {
+      const transaction = database.transaction([mediaStoreName, mediaBlobStoreName], 'readwrite');
+      await transaction.objectStore(mediaBlobStoreName).delete(oldestItem.id);
+      await transaction.objectStore(mediaStoreName).delete(oldestItem.id);
+      await transaction.done;
+    }
     currentUsage -= oldestItem.sizeBytes;
   }
 
@@ -485,7 +935,92 @@ export async function saveMedia(item: MediaItem): Promise<void> {
   assertStorageWriteCompatible();
   const database = await getDatabase();
   await enforceStorageBudget(database, item.sizeBytes);
-  await database.put(mediaStoreName, buildStoredBlobMediaItem(item));
+  const transaction = database.transaction([mediaStoreName, mediaBlobStoreName], 'readwrite');
+  await transaction.objectStore(mediaStoreName).put(buildStoredCopiedMediaItem(item));
+  await transaction.objectStore(mediaBlobStoreName).put({
+    blob: item.blob,
+    mediaId: item.id,
+  });
+  await transaction.done;
+  markCurrentClientWrite();
+}
+
+export async function createChunkedRecordingMedia(
+  item: ChunkedRecordingMediaDraft,
+): Promise<void> {
+  assertStorageWriteCompatible();
+  const database = await getDatabase();
+  await database.put(mediaStoreName, buildStoredChunkedRecordingMediaItem(item));
+  markCurrentClientWrite();
+}
+
+export async function appendChunkedRecordingMediaChunk(
+  recordingId: string,
+  sequence: number,
+  chunk: Blob,
+): Promise<void> {
+  assertStorageWriteCompatible();
+  const database = await getDatabase();
+  await enforceStorageBudget(database, chunk.size);
+  const transaction = database.transaction([mediaStoreName, recordingChunkStoreName], 'readwrite');
+  const mediaStore = transaction.objectStore(mediaStoreName);
+  const chunkStore = transaction.objectStore(recordingChunkStoreName);
+  const storedItem = await mediaStore.get(recordingId);
+
+  if (storedItem === undefined || storedItem.kind !== 'chunked-recording') {
+    throw new Error('Recording session metadata is unavailable for chunk persistence.');
+  }
+
+  await chunkStore.put({
+    blob: chunk,
+    recordingId,
+    sequence,
+    sizeBytes: chunk.size,
+  });
+  await mediaStore.put({
+    ...storedItem,
+    chunkCount: Math.max(storedItem.chunkCount, sequence + 1),
+    sizeBytes: storedItem.sizeBytes + chunk.size,
+  });
+  await transaction.done;
+  markCurrentClientWrite();
+}
+
+export async function finalizeChunkedRecordingMedia(
+  recordingId: string,
+  finalMetadata: {
+    readonly durationMs: number;
+    readonly timestamp: number;
+  },
+): Promise<void> {
+  assertStorageWriteCompatible();
+  const database = await getDatabase();
+  const storedItem = await database.get(mediaStoreName, recordingId);
+
+  if (storedItem === undefined || storedItem.kind !== 'chunked-recording') {
+    throw new Error('Recording session metadata is unavailable for finalization.');
+  }
+
+  await database.put(mediaStoreName, {
+    ...storedItem,
+    durationMs: finalMetadata.durationMs,
+    timestamp: finalMetadata.timestamp,
+  });
+  markCurrentClientWrite();
+}
+
+export async function discardChunkedRecordingMedia(recordingId: string): Promise<void> {
+  assertStorageWriteCompatible();
+  const database = await getDatabase();
+  const transaction = database.transaction([mediaStoreName, recordingChunkStoreName], 'readwrite');
+  const chunkStore = transaction.objectStore(recordingChunkStoreName);
+  const chunkKeys = await chunkStore.getAllKeys(IDBKeyRange.bound([recordingId, 0], [recordingId, Number.MAX_SAFE_INTEGER]));
+
+  await Promise.all(
+    chunkKeys.map((chunkKey): Promise<void> => chunkStore.delete(chunkKey)),
+  );
+  await transaction.objectStore(mediaStoreName).delete(recordingId);
+  await transaction.done;
   markCurrentClientWrite();
 }
 
@@ -608,14 +1143,41 @@ export async function deleteMedia(id: string): Promise<void> {
   if (storedItem?.kind === 'file-handle') {
     transientFileHandleRegistry.delete(storedItem.fileHandleCacheKey);
   }
-  await database.delete(mediaStoreName, id);
+  const transaction = database.transaction(
+    [mediaStoreName, mediaBlobStoreName, recordingChunkStoreName],
+    'readwrite',
+  );
+
+  if (storedItem?.kind === 'chunked-recording') {
+    const chunkStore = transaction.objectStore(recordingChunkStoreName);
+    const chunkKeys = await chunkStore.getAllKeys(
+      IDBKeyRange.bound([id, 0], [id, Number.MAX_SAFE_INTEGER]),
+    );
+    await Promise.all(
+      chunkKeys.map((chunkKey: [string, number]): Promise<void> => chunkStore.delete(chunkKey)),
+    );
+  }
+
+  if (storedItem?.kind === 'copied-indexeddb') {
+    await transaction.objectStore(mediaBlobStoreName).delete(id);
+  }
+
+  await transaction.objectStore(mediaStoreName).delete(id);
+  await transaction.done;
   markCurrentClientWrite();
 }
 
 export async function clearAll(): Promise<void> {
   assertStorageWriteCompatible();
   const database = await getDatabase();
-  await database.clear(mediaStoreName);
+  const transaction = database.transaction(
+    [mediaStoreName, mediaBlobStoreName, recordingChunkStoreName],
+    'readwrite',
+  );
+  await transaction.objectStore(mediaStoreName).clear();
+  await transaction.objectStore(mediaBlobStoreName).clear();
+  await transaction.objectStore(recordingChunkStoreName).clear();
+  await transaction.done;
   transientFileHandleRegistry.clear();
   markCurrentClientWrite();
 }
@@ -639,26 +1201,50 @@ export async function resetMediaDatabase(): Promise<void> {
 
 export async function getMediaStorageStats(): Promise<MediaStorageStats> {
   const database = await getDatabase();
-  const storedItems = await database.getAll(mediaStoreName);
-  const usageBytes = storedItems.reduce(
-    (totalBytes: number, item: StoredMediaItem): number =>
-      totalBytes + calculateStoredRecordBudgetBytes(item),
-    0,
+  const {
+    copiedItemCount,
+    handleBackedItemCount,
+    itemCount,
+    referencedBytes,
+    usageBytes,
+  } = await reduceStoredMediaItems(
+    database,
+    (
+      stats: {
+        copiedItemCount: number;
+        handleBackedItemCount: number;
+        itemCount: number;
+        referencedBytes: number;
+        usageBytes: number;
+      },
+      item: LegacyStoredMediaItem,
+    ) => {
+      stats.itemCount += 1;
+      stats.usageBytes += calculateStoredRecordBudgetBytes(item);
+
+      if (item.kind === 'file-handle') {
+        stats.handleBackedItemCount += 1;
+        stats.referencedBytes += item.sizeBytes;
+      } else {
+        stats.copiedItemCount += 1;
+      }
+
+      return stats;
+    },
+    {
+      copiedItemCount: 0,
+      handleBackedItemCount: 0,
+      itemCount: 0,
+      referencedBytes: 0,
+      usageBytes: 0,
+    },
   );
-  const referencedBytes = storedItems.reduce(
-    (totalBytes: number, item: StoredMediaItem): number =>
-      item.kind === 'file-handle' ? totalBytes + item.sizeBytes : totalBytes,
-    0,
-  );
-  const handleBackedItemCount = storedItems.filter(
-    (item: StoredMediaItem): boolean => item.kind === 'file-handle',
-  ).length;
   const { maxAllowedBytes, quotaBytes } = await getStorageBudget();
 
   return {
-    copiedItemCount: storedItems.length - handleBackedItemCount,
+    copiedItemCount,
     handleBackedItemCount,
-    itemCount: storedItems.length,
+    itemCount,
     maxAllowedBytes,
     quotaBytes,
     referencedBytes,

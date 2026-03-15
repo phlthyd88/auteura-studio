@@ -7,7 +7,7 @@ import Slider from '@mui/material/Slider';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import type {
   TimelineClip,
   TimelineEnvelopePoint,
@@ -79,6 +79,8 @@ function EnvelopeEditor({
   valueRange,
   onChange,
 }: EnvelopeEditorProps): JSX.Element {
+  const theme = useTheme();
+
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
@@ -106,8 +108,12 @@ function EnvelopeEditor({
             sx={{
               p: 1,
               borderRadius: 3,
-              border: '1px solid rgba(15, 79, 99, 0.08)',
-              bgcolor: alpha('#fffaf4', 0.72),
+              border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+              background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+                theme.palette.auteura.surface,
+                0.8,
+              )} 100%)`,
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
             }}
           >
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">

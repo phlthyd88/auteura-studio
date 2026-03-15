@@ -10,6 +10,20 @@ interface TimelineWaveformProps {
   readonly trimStartMs: number;
 }
 
+function resolveCanvasColor(
+  canvas: HTMLCanvasElement,
+  color: string,
+): string {
+  if (!color.startsWith('var(')) {
+    return color;
+  }
+
+  const variableName = color.slice(4, -1).trim();
+  const resolvedColor = window.getComputedStyle(canvas).getPropertyValue(variableName).trim();
+
+  return resolvedColor.length > 0 ? resolvedColor : color;
+}
+
 function drawWaveform(
   canvas: HTMLCanvasElement,
   summary: WaveformSummary | null | undefined,
@@ -28,19 +42,37 @@ function drawWaveform(
   const height = canvas.height;
 
   context.clearRect(0, 0, width, height);
-  context.fillStyle = 'rgba(255,255,255,0.04)';
+  const resolvedColor = resolveCanvasColor(canvas, color);
+
+  context.fillStyle = 'rgba(6,16,23,0.94)';
   context.fillRect(0, 0, width, height);
 
-  const baselineY = height / 2;
-  context.strokeStyle = 'rgba(255,255,255,0.12)';
+  context.strokeStyle = 'rgba(255,255,255,0.1)';
   context.lineWidth = 1;
+
+  for (let x = 0; x <= width; x += 16 * (window.devicePixelRatio || 1)) {
+    context.beginPath();
+    context.moveTo(x + 0.5, 0);
+    context.lineTo(x + 0.5, height);
+    context.stroke();
+  }
+
+  for (let y = 0; y <= height; y += 8 * (window.devicePixelRatio || 1)) {
+    context.beginPath();
+    context.moveTo(0, y + 0.5);
+    context.lineTo(width, y + 0.5);
+    context.stroke();
+  }
+
+  const baselineY = height / 2;
+  context.strokeStyle = 'rgba(255,255,255,0.1)';
   context.beginPath();
   context.moveTo(0, baselineY);
   context.lineTo(width, baselineY);
   context.stroke();
 
   if (loading) {
-    context.strokeStyle = 'rgba(245,158,11,0.65)';
+    context.strokeStyle = 'rgba(192,110,40,0.72)';
     context.beginPath();
     context.moveTo(0, baselineY);
     context.lineTo(width * 0.45, baselineY);
@@ -63,8 +95,11 @@ function drawWaveform(
   const verticalPadding = 4 * (window.devicePixelRatio || 1);
   const amplitude = (height - verticalPadding * 2) / 2;
 
-  context.strokeStyle = color;
+  context.strokeStyle = resolvedColor;
   context.lineWidth = Math.max(1, window.devicePixelRatio || 1);
+
+  context.shadowBlur = 8 * (window.devicePixelRatio || 1);
+  context.shadowColor = resolvedColor;
 
   for (let x = 0; x < width; x += 1) {
     const columnStartRatio = x / width;
@@ -95,10 +130,13 @@ function drawWaveform(
     context.lineTo(x + 0.5, maxY);
     context.stroke();
   }
+
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
 }
 
 export function TimelineWaveform({
-  color = 'rgba(245,158,11,0.88)',
+  color = 'var(--color-accent-copper)',
   loading = false,
   summary,
   trimEndMs,
@@ -150,6 +188,9 @@ export function TimelineWaveform({
         display: 'block',
         width: '100%',
         height: 32,
+        borderRadius: 1.5,
+        background:
+          'linear-gradient(180deg, rgba(6,16,23,0.96), rgba(10,22,31,0.92)), repeating-linear-gradient(90deg, rgba(255,255,255,0.1) 0 1px, transparent 1px 16px)',
       }}
     />
   );

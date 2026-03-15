@@ -1,4 +1,5 @@
 import {
+  startTransition,
   createContext,
   useCallback,
   useContext,
@@ -27,6 +28,7 @@ export type PerformanceMode = 'auto' | 'quality' | 'balanced' | 'performance';
 export type PerformanceRecommendationAction =
   | 'clear-preview-quality-override'
   | 'disable-forced-background-blur'
+  | 'disable-forced-scopes'
   | 'set-mode-balanced'
   | 'set-mode-performance'
   | 'set-mode-quality'
@@ -63,6 +65,7 @@ export interface PerformanceDiagnostics {
   readonly degradationReason: string | null;
   readonly fboMemoryUsageBytes: number;
   readonly forceBackgroundBlurPreview: boolean;
+  readonly forceScopesPreview: boolean;
   readonly gpuBenchmarkMs: number | null;
   readonly hardwareTier: HardwareTier;
   readonly heapUsageRatio: number | null;
@@ -73,6 +76,7 @@ export interface PerformanceDiagnostics {
   readonly profilerHardwareConcurrency: number | null;
   readonly recommendations: readonly PerformanceRecommendation[];
   readonly recommendedMode: Exclude<PerformanceMode, 'auto'>;
+  readonly scopeStatusReason: string | null;
   readonly webglRenderTimeMs: number;
 }
 
@@ -81,12 +85,14 @@ export interface PerformanceModeContextValue {
   readonly diagnostics: PerformanceDiagnostics;
   readonly effectiveMode: Exclude<PerformanceMode, 'auto'>;
   readonly forceBackgroundBlurPreview: boolean;
+  readonly forceScopesPreview: boolean;
   readonly mode: PerformanceMode;
   readonly previewQualityOverride: number | null;
   applyRecommendation: (action: PerformanceRecommendationAction) => void;
   reportWebglFrameTime: (durationMs: number) => void;
   setFboMemoryUsageBytes: (nextBytes: number) => void;
   setForceBackgroundBlurPreview: (nextEnabled: boolean) => void;
+  setForceScopesPreview: (nextEnabled: boolean) => void;
   setMode: (nextMode: PerformanceMode) => void;
   setPreviewQualityOverride: (nextScale: number | null) => void;
 }
@@ -230,6 +236,7 @@ function getCapabilities(
   hardwareTier: HardwareTier,
   previewQualityOverride: number | null,
   forceBackgroundBlurPreview: boolean,
+  forceScopesPreview: boolean,
   activeDegradationStage: 0 | 1 | 2 | 3,
   isMemoryConstrained: boolean,
   isPageHidden: boolean,
@@ -283,6 +290,7 @@ function getCapabilities(
     previewQualityOverride === null
       ? selectedCapabilities.qualityScale
       : Math.max(0.5, Math.min(1, previewQualityOverride));
+  const canForceScopes = forceScopesPreview && !isMemoryConstrained && !isPageHidden;
 
   if (isMemoryConstrained || isPageHidden) {
     return {
@@ -306,12 +314,12 @@ function getCapabilities(
       ...selectedCapabilities,
       aiFrameRateCap: Math.min(selectedCapabilities.aiFrameRateCap, forceBackgroundBlurPreview ? 6 : 8),
       allowBackgroundBlur: forceBackgroundBlurPreview,
-      allowScopes: false,
+      allowScopes: canForceScopes,
       bypassHeavyPreviewPasses: true,
       qualityScale:
         previewQualityOverride === null ? Math.min(qualityScale, 0.5) : qualityScale,
-      scopeAnalysisMode: 'disabled',
-      scopeFrameRateCap: 0,
+      scopeAnalysisMode: canForceScopes ? 'cpu-sampled' : 'disabled',
+      scopeFrameRateCap: canForceScopes ? 2 : 0,
       scopeSampleHeight: 27,
       scopeSampleWidth: 48,
       virtualOutputFrameRateCap: Math.min(selectedCapabilities.virtualOutputFrameRateCap, 15),
@@ -323,12 +331,12 @@ function getCapabilities(
     return {
       ...selectedCapabilities,
       aiFrameRateCap: Math.min(selectedCapabilities.aiFrameRateCap, 12),
-      allowScopes: false,
+      allowScopes: canForceScopes,
       bypassHeavyPreviewPasses: true,
       qualityScale:
         previewQualityOverride === null ? Math.min(qualityScale, 0.75) : qualityScale,
-      scopeAnalysisMode: 'disabled',
-      scopeFrameRateCap: 0,
+      scopeAnalysisMode: canForceScopes ? 'cpu-sampled' : 'disabled',
+      scopeFrameRateCap: canForceScopes ? 3 : 0,
       scopeSampleHeight: 27,
       scopeSampleWidth: 48,
       virtualOutputFrameRateCap: Math.min(selectedCapabilities.virtualOutputFrameRateCap, 20),
@@ -341,9 +349,9 @@ function getCapabilities(
     return {
       ...selectedCapabilities,
       aiFrameRateCap: Math.min(selectedCapabilities.aiFrameRateCap, 16),
-      allowScopes: false,
-      scopeAnalysisMode: 'disabled',
-      scopeFrameRateCap: 0,
+      allowScopes: canForceScopes,
+      scopeAnalysisMode: canForceScopes ? 'cpu-sampled' : 'disabled',
+      scopeFrameRateCap: canForceScopes ? 4 : 0,
       scopeSampleHeight: 36,
       scopeSampleWidth: 64,
       virtualOutputFrameRateCap: Math.min(selectedCapabilities.virtualOutputFrameRateCap, 24),
@@ -366,6 +374,7 @@ function buildRecommendations(
     readonly averageFps: number;
     readonly effectiveMode: Exclude<PerformanceMode, 'auto'>;
     readonly forceBackgroundBlurPreview: boolean;
+    readonly forceScopesPreview: boolean;
     readonly previewQualityOverride: number | null;
     readonly recommendedMode: Exclude<PerformanceMode, 'auto'>;
   },
@@ -394,6 +403,16 @@ function buildRecommendations(
       description: 'Forced preview blur is increasing render pressure. Let guardrails manage it automatically.',
       id: 'disable-forced-background-blur',
       label: 'Disable forced blur',
+      severity: 'warning',
+    });
+  }
+
+  if (input.forceScopesPreview && (input.activeDegradationStage >= 2 || input.averageFps < 54)) {
+    recommendations.push({
+      action: 'disable-forced-scopes',
+      description: 'Forced scopes are increasing preview load. Let guardrails pause them until frame pacing recovers.',
+      id: 'disable-forced-scopes',
+      label: 'Disable forced scopes',
       severity: 'warning',
     });
   }
@@ -457,6 +476,10 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
   const [mode, setMode] = useState<PerformanceMode>('balanced');
   const [forceBackgroundBlurPreview, setForceBackgroundBlurPreview] =
     usePersistedState<boolean>('auteura:force-background-blur-preview', false);
+  const [forceScopesPreview, setForceScopesPreview] = usePersistedState<boolean>(
+    'auteura:force-scopes-preview',
+    false,
+  );
   const [previewQualityOverride, setPreviewQualityOverride] = usePersistedState<number | null>(
     'auteura:preview-quality-override',
     null,
@@ -579,10 +602,12 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
 
   useEffect((): (() => void) => {
     const intervalId = window.setInterval((): void => {
-      setMonitorSnapshot(diagnosticsSnapshotRef.current);
-      setWebglRenderTimeMs(webglRenderTimeRef.current);
-      setFboMemoryUsageBytesState(fboMemoryUsageBytesRef.current);
-    }, 250);
+      startTransition((): void => {
+        setMonitorSnapshot(diagnosticsSnapshotRef.current);
+        setWebglRenderTimeMs(webglRenderTimeRef.current);
+        setFboMemoryUsageBytesState(fboMemoryUsageBytesRef.current);
+      });
+    }, 500);
 
     return (): void => {
       window.clearInterval(intervalId);
@@ -615,6 +640,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
         hardwareTier,
         previewQualityOverride,
         forceBackgroundBlurPreview,
+        forceScopesPreview,
         activeDegradationStage,
         isMemoryConstrained,
         isPageHidden,
@@ -623,6 +649,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
       activeDegradationStage,
       effectiveMode,
       forceBackgroundBlurPreview,
+      forceScopesPreview,
       hardwareTier,
       previewQualityOverride,
       isMemoryConstrained,
@@ -636,6 +663,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
         averageFps: monitorSnapshot.averageFps,
         effectiveMode,
         forceBackgroundBlurPreview,
+        forceScopesPreview,
         previewQualityOverride,
         recommendedMode,
       }),
@@ -643,6 +671,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
       activeDegradationStage,
       effectiveMode,
       forceBackgroundBlurPreview,
+      forceScopesPreview,
       monitorSnapshot.averageFps,
       previewQualityOverride,
       recommendedMode,
@@ -660,6 +689,11 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
   const applyRecommendation = useCallback((action: PerformanceRecommendationAction): void => {
     if (action === 'disable-forced-background-blur') {
       setForceBackgroundBlurPreview(false);
+      return;
+    }
+
+    if (action === 'disable-forced-scopes') {
+      setForceScopesPreview(false);
       return;
     }
 
@@ -689,7 +723,35 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
     }
 
     setMode('quality');
-  }, [setForceBackgroundBlurPreview, setPreviewQualityOverride]);
+  }, [setForceBackgroundBlurPreview, setForceScopesPreview, setPreviewQualityOverride]);
+
+  const scopeStatusReason = useMemo<string | null>(() => {
+    if (isPageHidden) {
+      return 'Scopes pause while the tab is hidden.';
+    }
+
+    if (isMemoryConstrained) {
+      return 'Scopes pause under memory pressure.';
+    }
+
+    if (capabilities.allowScopes) {
+      return forceScopesPreview && activeDegradationStage >= 1
+        ? `Scopes are forced on while guardrail stage ${activeDegradationStage} is active.`
+        : null;
+    }
+
+    if (activeDegradationStage >= 1) {
+      return `Guardrail stage ${activeDegradationStage} paused scopes to protect preview fluidity.`;
+    }
+
+    return 'Scopes are disabled by the current performance profile.';
+  }, [
+    activeDegradationStage,
+    capabilities.allowScopes,
+    forceScopesPreview,
+    isMemoryConstrained,
+    isPageHidden,
+  ]);
 
   const contextValue = useMemo<PerformanceModeContextValue>(
     (): PerformanceModeContextValue => ({
@@ -703,6 +765,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
         degradationReason,
         fboMemoryUsageBytes,
         forceBackgroundBlurPreview,
+        forceScopesPreview,
         gpuBenchmarkMs: storedProfile?.gpuBenchmarkMs ?? null,
         hardwareTier,
         heapUsageRatio,
@@ -713,15 +776,18 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
         profilerHardwareConcurrency: storedProfile?.hardwareConcurrency ?? null,
         recommendations,
         recommendedMode,
+        scopeStatusReason,
         webglRenderTimeMs,
       },
       effectiveMode,
       forceBackgroundBlurPreview,
+      forceScopesPreview,
       mode,
       previewQualityOverride,
       reportWebglFrameTime,
       setFboMemoryUsageBytes,
       setForceBackgroundBlurPreview,
+      setForceScopesPreview,
       setMode,
       setPreviewQualityOverride,
     }),
@@ -734,6 +800,7 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
       effectiveMode,
       fboMemoryUsageBytes,
       forceBackgroundBlurPreview,
+      forceScopesPreview,
       hardwareTier,
       heapUsageRatio,
       isMemoryConstrained,
@@ -747,8 +814,10 @@ export function PerformanceModeProvider({ children }: PropsWithChildren): JSX.El
       reportWebglFrameTime,
       recommendations,
       recommendedMode,
+      scopeStatusReason,
       setFboMemoryUsageBytes,
       setForceBackgroundBlurPreview,
+      setForceScopesPreview,
       setPreviewQualityOverride,
       storedProfile?.gpuBenchmarkMs,
       storedProfile?.hardwareConcurrency,

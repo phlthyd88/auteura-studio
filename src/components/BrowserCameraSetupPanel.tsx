@@ -11,7 +11,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { useMemo, useState } from 'react';
 import { useRenderController } from '../controllers/RenderController';
 import { StudioDeckSection } from './StudioDeckSection';
@@ -69,24 +69,34 @@ function SetupStatusBlock({
   readonly label: string;
   readonly value: string;
 }): JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       sx={{
-        p: 1.15,
-        borderRadius: '18px',
-        border: '1px solid rgba(15,79,99,0.08)',
-        bgcolor: alpha('#fffaf4', 0.62),
+        p: 1.2,
+        minHeight: 116,
+        borderRadius: '20px',
+        border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+        background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.9)} 0%, ${alpha(
+          theme.palette.auteura.surface,
+          0.82,
+        )} 100%)`,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
       }}
     >
-      <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block' }}>
+      <Typography variant="overline" sx={{ color: 'secondary.light', display: 'block' }}>
         {label}
       </Typography>
-      <Typography variant="body2">{value}</Typography>
+      <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600 }}>
+        {value}
+      </Typography>
     </Box>
   );
 }
 
 export function BrowserCameraSetupPanel(): JSX.Element {
+  const theme = useTheme();
   const {
     pictureInPictureConfig,
     setPictureInPictureConfig,
@@ -266,14 +276,31 @@ export function BrowserCameraSetupPanel(): JSX.Element {
             <Box
               key={step.title}
               sx={{
-                p: 1.2,
-                borderRadius: '18px',
-                border: '1px solid rgba(15,79,99,0.08)',
-                bgcolor: alpha('#fffaf4', 0.62),
+                p: 1.35,
+                borderRadius: '20px',
+                border: `1px solid ${alpha(
+                  step.complete ? theme.palette.success.main : theme.palette.auteura.borderSubtle,
+                  step.complete ? 0.42 : 0.96,
+                )}`,
+                background: step.complete
+                  ? `linear-gradient(180deg, ${alpha(theme.palette.success.main, 0.1)} 0%, ${alpha(
+                      theme.palette.auteura.surface,
+                      0.84,
+                    )} 100%)`
+                  : `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+                      theme.palette.auteura.surface,
+                      0.8,
+                    )} 100%)`,
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
               }}
             >
               <Stack direction="row" spacing={1.1} alignItems="flex-start">
-                <Box sx={{ pt: 0.15, color: step.complete ? 'success.main' : 'text.secondary' }}>
+                <Box
+                  sx={{
+                    pt: 0.15,
+                    color: step.complete ? 'success.main' : 'secondary.light',
+                  }}
+                >
                   {step.complete ? (
                     <CheckCircleRoundedIcon fontSize="small" />
                   ) : (
@@ -281,10 +308,10 @@ export function BrowserCameraSetupPanel(): JSX.Element {
                   )}
                 </Box>
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2">
+                  <Typography variant="subtitle2" sx={{ color: 'text.primary', fontWeight: 800 }}>
                     {index + 1}. {step.title}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     {step.body}
                   </Typography>
                 </Box>
@@ -301,10 +328,14 @@ export function BrowserCameraSetupPanel(): JSX.Element {
 
         <Box
           sx={{
-            p: 1.3,
-            borderRadius: '18px',
-            border: '1px solid rgba(15,79,99,0.08)',
-            bgcolor: alpha('#fffaf4', 0.62),
+            p: 1.35,
+            borderRadius: '20px',
+            border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+            background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.9)} 0%, ${alpha(
+              theme.palette.auteura.surface,
+              0.82,
+            )} 100%)`,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
           }}
         >
           <Stack spacing={1.15}>
@@ -361,8 +392,8 @@ export function BrowserCameraSetupPanel(): JSX.Element {
         </Box>
 
         <Stack direction="row" spacing={1} alignItems="center">
-          <WarningAmberRoundedIcon color="warning" fontSize="small" />
-          <Typography variant="body2" color="text.secondary">
+              <WarningAmberRoundedIcon color="warning" fontSize="small" />
+          <Typography variant="body2" color="text.primary">
             If the extension is installed after Auteura loads, refresh the tab once so the host bridge can be detected immediately.
           </Typography>
         </Stack>

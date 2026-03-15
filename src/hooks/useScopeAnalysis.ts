@@ -65,7 +65,13 @@ export function useScopeAnalysis(
         window.cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [canvasRef, sampleHeight, settings]);
+  }, [
+    canvasRef,
+    sampleHeight,
+    settings.enabled,
+    settings.sampleFps,
+    settings.sampleWidth,
+  ]);
 
   return analysis;
 }

@@ -1,9 +1,13 @@
 import { getMediaById } from './MediaStorageService';
+import {
+  LruDecodedAudioBufferCache,
+  type DecodedAudioBufferCache,
+} from './DecodedAudioBufferCache';
 import type { TimelineAudioCompositionInstruction, TimelineClipAudioSettings } from '../models/Timeline';
 
 interface TimelineAudioEngineOptions {
   readonly audioContext: AudioContext;
-  readonly decodedBufferCache?: Map<string, Promise<AudioBuffer | null>>;
+  readonly decodedBufferCache?: DecodedAudioBufferCache;
   readonly outputNodes?: readonly AudioNode[];
 }
 
@@ -83,14 +87,14 @@ function applyFadeAutomation(
 }
 
 export class TimelineAudioEngine {
-  private readonly audioBufferCache: Map<string, Promise<AudioBuffer | null>>;
+  private readonly audioBufferCache: DecodedAudioBufferCache;
 
   private readonly outputNodes: readonly AudioNode[];
 
   private readonly scheduledNodes = new Map<string, ScheduledAudioNode>();
 
   public constructor(private readonly options: TimelineAudioEngineOptions) {
-    this.audioBufferCache = options.decodedBufferCache ?? new Map();
+    this.audioBufferCache = options.decodedBufferCache ?? new LruDecodedAudioBufferCache();
     this.outputNodes =
       options.outputNodes === undefined || options.outputNodes.length === 0
         ? [options.audioContext.destination]
@@ -247,8 +251,7 @@ export class TimelineAudioEngine {
       }
     })();
 
-    this.audioBufferCache.set(mediaId, decodedBufferPromise);
-    return decodedBufferPromise;
+    return this.audioBufferCache.set(mediaId, decodedBufferPromise);
   }
 
   clearCache(): void {

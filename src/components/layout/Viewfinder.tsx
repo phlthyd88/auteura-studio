@@ -4,7 +4,6 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BrandMark } from '../branding/BrandMark';
 import { useCameraController } from '../../controllers/CameraController';
 import { useRenderController } from '../../controllers/RenderController';
 import {
@@ -309,15 +308,18 @@ export function Viewfinder(): JSX.Element {
     <Stack spacing={2} sx={{ height: '100%', minHeight: 0 }}>
       <Box
         sx={{
-          px: 0.9,
-          py: 0.75,
-          borderRadius: '18px',
-          border: `1px solid ${isDark ? 'rgba(120, 173, 191, 0.16)' : 'rgba(15, 79, 99, 0.1)'}`,
+          px: 1.1,
+          py: 0.9,
+          borderRadius: '20px',
+          border: `1px solid ${theme.palette.auteura.borderSubtle}`,
           background: isDark
-            ? 'linear-gradient(180deg, rgba(17,35,48,0.96) 0%, rgba(10,22,31,0.88) 100%)'
+            ? `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.94)} 0%, ${alpha(
+                theme.palette.auteura.surface,
+                0.9,
+              )} 100%)`
             : 'linear-gradient(180deg, rgba(255,250,244,0.92) 0%, rgba(242,247,246,0.74) 100%)',
           boxShadow: isDark
-            ? '0 10px 22px rgba(0, 0, 0, 0.28)'
+            ? '0 10px 22px rgba(0, 0, 0, 0.24)'
             : '0 10px 22px rgba(15, 79, 99, 0.07)',
           flexShrink: 0,
         }}
@@ -328,20 +330,24 @@ export function Viewfinder(): JSX.Element {
           justifyContent="space-between"
           alignItems={{ xs: 'flex-start', md: 'center' }}
         >
-          <Stack direction="row" spacing={0.8} alignItems="center">
-            <BrandMark size={26} />
-            <Box>
-              <Typography variant="overline" sx={{ color: 'secondary.dark', lineHeight: 1 }}>
-                Studio Monitor
-              </Typography>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                Viewfinder
-              </Typography>
-            </Box>
-          </Stack>
+          <Box>
+            <Typography variant="overline" sx={{ color: 'secondary.light', lineHeight: 1 }}>
+              Primary monitor
+            </Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'text.primary' }}>
+              Signal view
+            </Typography>
+          </Box>
 
           <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
-            <Box sx={{ px: 1.1, py: 0.55, borderRadius: 999, ...statusTone(true, '#0f5f74', isDark) }}>
+            <Box
+              sx={{
+                px: 1.1,
+                py: 0.55,
+                borderRadius: 999,
+                ...statusTone(true, theme.palette.auteura.teal, isDark),
+              }}
+            >
               <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'capitalize' }}>
                 {mode}
               </Typography>
@@ -351,7 +357,7 @@ export function Viewfinder(): JSX.Element {
                 px: 1.1,
                 py: 0.55,
                 borderRadius: 999,
-                ...statusTone(stream !== null, '#0f8f69', isDark),
+                ...statusTone(stream !== null, theme.palette.auteura.tealLight, isDark),
               }}
             >
               <Typography variant="caption" sx={{ fontWeight: 700 }}>
@@ -363,7 +369,11 @@ export function Viewfinder(): JSX.Element {
                 px: 1.1,
                 py: 0.55,
                 borderRadius: 999,
-                ...statusTone(overlayConfig.showGrid || overlayConfig.showFrameGuide, '#c06e28', isDark),
+                ...statusTone(
+                  overlayConfig.showGrid || overlayConfig.showFrameGuide,
+                  theme.palette.auteura.copper,
+                  isDark,
+                ),
               }}
             >
               <Typography variant="caption" sx={{ fontWeight: 700 }}>
@@ -378,18 +388,25 @@ export function Viewfinder(): JSX.Element {
       {cameraError !== null ? <Alert severity="error">{cameraError}</Alert> : null}
       {rendererError !== null ? (
         <Stack spacing={1}>
-          <Alert severity="warning">{rendererError}</Alert>
+          <Alert severity={webglDiagnostics.backend === 'canvas-2d' ? 'info' : 'warning'}>
+            {rendererError}
+          </Alert>
           <Box
             sx={{
               px: 1.2,
               py: 1,
               borderRadius: '16px',
-              border: `1px solid ${isDark ? 'rgba(120, 173, 191, 0.18)' : 'rgba(15, 79, 99, 0.1)'}`,
-              backgroundColor: isDark ? 'rgba(16, 29, 39, 0.86)' : 'rgba(255, 250, 244, 0.88)',
+              border: `1px solid ${theme.palette.auteura.borderSubtle}`,
+              backgroundColor: isDark
+                ? alpha(theme.palette.auteura.surfaceElevated, 0.86)
+                : 'rgba(255, 250, 244, 0.88)',
             }}
           >
             <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block', mb: 0.4 }}>
               WebGL Diagnostics
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              active backend: {webglDiagnostics.backend}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               API exposed: {webglDiagnostics.apiExposed ? 'yes' : 'no'}
@@ -409,11 +426,11 @@ export function Viewfinder(): JSX.Element {
           position: 'relative',
           flex: 1,
           minHeight: 0,
-          borderRadius: '34px',
+          borderRadius: '38px',
           overflow: 'hidden',
-          border: `1px solid ${isDark ? 'rgba(120, 173, 191, 0.18)' : 'rgba(15, 79, 99, 0.12)'}`,
+          border: `1px solid ${alpha(theme.palette.auteura.tealLight, isDark ? 0.18 : 0.12)}`,
           background:
-            'radial-gradient(circle at 12% 12%, rgba(32,194,197,0.22), transparent 20%), radial-gradient(circle at 78% 20%, rgba(192,110,40,0.22), transparent 22%), linear-gradient(180deg, rgba(13,59,79,0.98) 0%, rgba(7,29,43,1) 100%)',
+            `radial-gradient(circle at 12% 12%, ${alpha(theme.palette.auteura.tealLight, 0.2)}, transparent 20%), radial-gradient(circle at 78% 20%, ${alpha(theme.palette.auteura.copper, 0.18)}, transparent 22%), linear-gradient(180deg, rgba(9,34,47,0.98) 0%, rgba(5,17,26,1) 100%)`,
           boxShadow: isDark ? '0 30px 60px rgba(0, 0, 0, 0.45)' : '0 30px 60px rgba(8, 30, 43, 0.28)',
         }}
       >
@@ -430,9 +447,20 @@ export function Viewfinder(): JSX.Element {
           sx={{
             position: 'absolute',
             inset: 18,
-            borderRadius: '24px',
-            border: '1px solid rgba(235, 173, 116, 0.14)',
+            borderRadius: '28px',
+            border: `1px solid ${alpha(theme.palette.auteura.copperLight, 0.12)}`,
             pointerEvents: 'none',
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 18,
+            borderRadius: '28px',
+            pointerEvents: 'none',
+            background:
+              'radial-gradient(circle at center, rgba(255,255,255,0.08) 0 1px, transparent 1px 12%), repeating-radial-gradient(circle at center, rgba(255,255,255,0.08) 0 1px, transparent 1px 40px)',
+            opacity: 0.22,
           }}
         />
         <Box
@@ -497,7 +525,7 @@ export function Viewfinder(): JSX.Element {
                 objectFit: 'contain',
                 borderRadius: '28px',
                 background:
-                  'radial-gradient(circle at top, rgba(31, 197, 196, 0.18), transparent 26%), #05131d',
+                  `radial-gradient(circle at top, ${alpha(theme.palette.auteura.tealLight, 0.18)}, transparent 26%), #05131d`,
               }}
             />
             {overlayConfig.showGrid ? (
@@ -507,7 +535,7 @@ export function Viewfinder(): JSX.Element {
                   inset: 0,
                   pointerEvents: 'none',
                   backgroundImage:
-                    'linear-gradient(to right, rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.12) 1px, transparent 1px)',
+                    'linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px)',
                   backgroundSize: '33.333% 100%, 100% 33.333%',
                   borderRadius: '28px',
                 }}
@@ -563,8 +591,8 @@ export function Viewfinder(): JSX.Element {
                 px: 1.3,
                 py: 0.85,
                 borderRadius: 999,
-                backgroundColor: 'rgba(7, 24, 35, 0.74)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                backgroundColor: alpha(theme.palette.background.default, 0.78),
+                border: `1px solid ${alpha(theme.palette.common.white, 0.08)}`,
                 pointerEvents: 'none',
               }}
             >

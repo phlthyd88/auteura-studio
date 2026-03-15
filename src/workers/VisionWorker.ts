@@ -20,6 +20,7 @@ import type {
   VisionWorkerMessage,
   VisionWorkerResponse,
 } from '../types/vision';
+import { determineVisionFrameExecutionDecision } from './VisionWorkerRuntime';
 
 const workerScope: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
 
@@ -78,6 +79,19 @@ let faceLandmarker: FaceLandmarker | null = null;
 let imageSegmenter: ImageSegmenter | null = null;
 let activeModelPaths: VisionModelPaths | null = null;
 let segmentationLabels: readonly string[] = [];
+let modelSyncDepth = 0;
+
+function beginModelSync(): void {
+  modelSyncDepth += 1;
+}
+
+function endModelSync(): void {
+  modelSyncDepth = Math.max(0, modelSyncDepth - 1);
+}
+
+function isModelSyncInProgress(): boolean {
+  return modelSyncDepth > 0;
+}
 
 function postWorkerMessage(message: VisionWorkerResponse, transfer: Transferable[] = []): void {
   workerScope.postMessage(message, transfer);
@@ -284,6 +298,7 @@ async function handleWorkerMessage(message: VisionWorkerMessage): Promise<void> 
     activeModelPaths = message.payload.modelPaths;
 
     try {
+      beginModelSync();
       await syncActiveModels(message.payload.modelPaths, message.payload.enabledFeatures);
       activeFeatures = message.payload.enabledFeatures;
       postWorkerMessage({
@@ -302,6 +317,8 @@ async function handleWorkerMessage(message: VisionWorkerMessage): Promise<void> 
         },
         type: 'INIT_ERROR',
       });
+    } finally {
+      endModelSync();
     }
 
     return;
@@ -326,6 +343,7 @@ async function handleWorkerMessage(message: VisionWorkerMessage): Promise<void> 
     }
 
     try {
+      beginModelSync();
       await syncActiveModels(activeModelPaths, message.payload.enabledFeatures);
       activeFeatures = message.payload.enabledFeatures;
     } catch (error) {
@@ -339,6 +357,8 @@ async function handleWorkerMessage(message: VisionWorkerMessage): Promise<void> 
         },
         type: 'ERROR',
       });
+    } finally {
+      endModelSync();
     }
 
     return;
@@ -348,14 +368,26 @@ async function handleWorkerMessage(message: VisionWorkerMessage): Promise<void> 
   const startedAt = performance.now();
 
   try {
-    if (
-      (activeFeatures.faceTracking && faceLandmarker === null) ||
-      (activeFeatures.backgroundBlur && imageSegmenter === null)
-    ) {
-      throw new Error('Vision worker received a frame before the active models were ready.');
+    const frameExecutionDecision = determineVisionFrameExecutionDecision({
+      activeFeatures,
+      hasFaceLandmarker: faceLandmarker !== null,
+      hasImageSegmenter: imageSegmenter !== null,
+      isModelSyncInProgress: isModelSyncInProgress(),
+    });
+
+    if (frameExecutionDecision.kind === 'skip') {
+      postWorkerMessage({
+        payload: {
+          reason: frameExecutionDecision.reason,
+          requestId,
+          timestamp,
+        },
+        type: 'SKIPPED',
+      });
+      return;
     }
 
-    if (!activeFeatures.faceTracking && !activeFeatures.backgroundBlur) {
+    if (frameExecutionDecision.kind === 'empty-results') {
       const emptyResults: VisionInferenceResults = {
         faces: [],
         processingDurationMs: 0,

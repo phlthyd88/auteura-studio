@@ -34,7 +34,7 @@ export default defineConfig({
           },
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
+    command: 'PLAYWRIGHT=true npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
     port: 4173,
     reuseExistingServer: process.env.CI !== 'true',
     timeout: 30_000,

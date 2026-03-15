@@ -20,16 +20,16 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StudioDeckSection } from './StudioDeckSection';
 import { StudioEmptyState } from './StudioEmptyState';
 import { useRecordingController } from '../controllers/RecordingController';
-import type { MediaItem } from '../services/MediaStorageService';
+import { getMediaById, type MediaItem } from '../services/MediaStorageService';
 
 type MediaFilter = 'all' | MediaItem['type'];
 type MediaSort = 'largest' | 'newest' | 'oldest';
+const mediaPageSize = 50;
 
 function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString();
@@ -76,6 +76,7 @@ export function MediaLibrary(): JSX.Element {
     storageStats,
   } = useRecordingController();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all');
+  const [mediaPage, setMediaPage] = useState<number>(1);
   const [mediaSort, setMediaSort] = useState<MediaSort>('newest');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -107,15 +108,49 @@ export function MediaLibrary(): JSX.Element {
       ).length,
     [mediaItems],
   );
+  const totalPages = Math.max(1, Math.ceil(filteredMediaItems.length / mediaPageSize));
+  const pagedMediaItems = useMemo<readonly MediaItem[]>(
+    (): readonly MediaItem[] => {
+      const startIndex = (mediaPage - 1) * mediaPageSize;
+      return filteredMediaItems.slice(startIndex, startIndex + mediaPageSize);
+    },
+    [filteredMediaItems, mediaPage],
+  );
+  const pageRangeLabel = useMemo<string>(() => {
+    if (filteredMediaItems.length === 0) {
+      return 'Showing 0 of 0';
+    }
+
+    const startItem = (mediaPage - 1) * mediaPageSize + 1;
+    const endItem = Math.min(filteredMediaItems.length, mediaPage * mediaPageSize);
+
+    return `Showing ${startItem}-${endItem} of ${filteredMediaItems.length}`;
+  }, [filteredMediaItems.length, mediaPage]);
   const ingestModeSummary = importedMediaCapability.fileSystemAccessSupported
     ? 'Linked import mode available. Large media stays referenced on disk unless the browser must fall back to a stored copy.'
     : 'This browser uses copy-based import. Large local media will consume browser quota and should be kept small.';
 
-  function handleDownload(item: MediaItem): void {
-    const objectUrl = URL.createObjectURL(item.blob);
+  useEffect((): void => {
+    setMediaPage(1);
+  }, [mediaFilter, mediaSort]);
+
+  useEffect((): void => {
+    if (mediaPage > totalPages) {
+      setMediaPage(totalPages);
+    }
+  }, [mediaPage, totalPages]);
+
+  async function handleDownload(item: MediaItem): Promise<void> {
+    const resolvedItem = await getMediaById(item.id);
+
+    if (resolvedItem === null) {
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(resolvedItem.blob);
     const linkElement = document.createElement('a');
     linkElement.href = objectUrl;
-    linkElement.download = `${item.name || `${item.type}-${item.id}.${getFileExtension(item)}`}`;
+    linkElement.download = `${resolvedItem.name || `${resolvedItem.type}-${resolvedItem.id}.${getFileExtension(resolvedItem)}`}`;
     linkElement.style.display = 'none';
     document.body.appendChild(linkElement);
     linkElement.click();
@@ -214,19 +249,43 @@ export function MediaLibrary(): JSX.Element {
               gap: 1,
             }}
           >
-            <Box sx={{ p: 1.2, borderRadius: 3, bgcolor: alpha('#0e5970', 0.06) }}>
+            <Box
+              sx={{
+                p: 1.2,
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+              }}
+            >
               <Typography variant="overline" sx={{ color: 'secondary.dark' }}>
                 Items
               </Typography>
               <Typography variant="body2">{mediaItems.length}</Typography>
             </Box>
-            <Box sx={{ p: 1.2, borderRadius: 3, bgcolor: alpha('#c06e28', 0.08) }}>
+            <Box
+              sx={{
+                p: 1.2,
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+              }}
+            >
               <Typography variant="overline" sx={{ color: 'secondary.dark' }}>
                 Visible
               </Typography>
               <Typography variant="body2">{filteredMediaItems.length}</Typography>
             </Box>
-            <Box sx={{ p: 1.2, borderRadius: 3, bgcolor: alpha('#0e5970', 0.06) }}>
+            <Box
+              sx={{
+                p: 1.2,
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+              }}
+            >
               <Typography variant="overline" sx={{ color: 'secondary.dark' }}>
                 Storage
               </Typography>
@@ -236,7 +295,15 @@ export function MediaLibrary(): JSX.Element {
                   : `${(storageStats.usageBytes / (1024 * 1024)).toFixed(1)} MB`}
               </Typography>
             </Box>
-            <Box sx={{ p: 1.2, borderRadius: 3, bgcolor: alpha('#c06e28', 0.08) }}>
+            <Box
+              sx={{
+                p: 1.2,
+                borderRadius: 3,
+                border: '1px solid rgba(120, 173, 191, 0.16)',
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+              }}
+            >
               <Typography variant="overline" sx={{ color: 'secondary.dark' }}>
                 Import Mode
               </Typography>
@@ -278,22 +345,32 @@ export function MediaLibrary(): JSX.Element {
             </FormControl>
           </Stack>
           {storageStats !== null ? (
-            <Typography variant="caption" color="text.secondary">
-              {storageStats.itemCount} items, {(storageStats.usageBytes / (1024 * 1024)).toFixed(1)} MB used
-              {storageStats.maxAllowedBytes !== null
-                ? ` of ${(storageStats.maxAllowedBytes / (1024 * 1024)).toFixed(1)} MB budget`
-                : ''}
-              {storageStats.handleBackedItemCount > 0
-                ? ` • ${storageStats.handleBackedItemCount} linked file${
-                    storageStats.handleBackedItemCount === 1 ? '' : 's'
-                  } (${(storageStats.referencedBytes / (1024 * 1024)).toFixed(1)} MB external)`
-                : ''}
-              {storageStats.copiedItemCount > 0
-                ? ` • ${storageStats.copiedItemCount} stored cop${
-                    storageStats.copiedItemCount === 1 ? 'y' : 'ies'
-                  } inside browser storage`
-                : ''}
-            </Typography>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', sm: 'center' }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                {storageStats.itemCount} items, {(storageStats.usageBytes / (1024 * 1024)).toFixed(1)} MB used
+                {storageStats.maxAllowedBytes !== null
+                  ? ` of ${(storageStats.maxAllowedBytes / (1024 * 1024)).toFixed(1)} MB budget`
+                  : ''}
+                {storageStats.handleBackedItemCount > 0
+                  ? ` • ${storageStats.handleBackedItemCount} linked file${
+                      storageStats.handleBackedItemCount === 1 ? '' : 's'
+                    } (${(storageStats.referencedBytes / (1024 * 1024)).toFixed(1)} MB external)`
+                  : ''}
+                {storageStats.copiedItemCount > 0
+                  ? ` • ${storageStats.copiedItemCount} stored cop${
+                      storageStats.copiedItemCount === 1 ? 'y' : 'ies'
+                    } inside browser storage`
+                  : ''}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {pageRangeLabel}
+              </Typography>
+            </Stack>
           ) : null}
           {filteredMediaItems.length === 0 ? (
             <StudioEmptyState
@@ -302,7 +379,7 @@ export function MediaLibrary(): JSX.Element {
             />
           ) : null}
           <List disablePadding>
-        {filteredMediaItems.map(
+        {pagedMediaItems.map(
           (item: MediaItem): JSX.Element => (
             <ListItem
               key={item.id}
@@ -313,7 +390,7 @@ export function MediaLibrary(): JSX.Element {
                     aria-label={`Download ${item.name}`}
                     edge="end"
                     disabled={!item.isAvailable}
-                    onClick={(): void => handleDownload(item)}
+                    onClick={(): void => void handleDownload(item)}
                   >
                     <DownloadRoundedIcon />
                   </IconButton>
@@ -328,12 +405,14 @@ export function MediaLibrary(): JSX.Element {
               }
               sx={{
                 alignItems: 'flex-start',
-                borderBottom: '1px solid rgba(15, 79, 99, 0.08)',
+                borderBottom: '1px solid rgba(120, 173, 191, 0.12)',
                 py: 1.5,
                 px: 1.25,
                 borderRadius: 3,
                 mb: 1,
-                bgcolor: alpha('#fffaf4', 0.72),
+                background:
+                  'linear-gradient(180deg, rgba(22, 51, 62, 0.88) 0%, rgba(12, 31, 39, 0.8) 100%)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
               }}
             >
               <ListItemAvatar>
@@ -389,6 +468,41 @@ export function MediaLibrary(): JSX.Element {
           ),
         )}
           </List>
+          {filteredMediaItems.length > mediaPageSize ? (
+            <Stack
+              direction="row"
+              spacing={1}
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ pt: 0.5 }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Page {mediaPage} of {totalPages}
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  aria-label="Previous media page"
+                  disabled={mediaPage <= 1}
+                  onClick={(): void => setMediaPage((currentPage) => Math.max(1, currentPage - 1))}
+                  size="small"
+                  variant="outlined"
+                >
+                  Previous
+                </Button>
+                <Button
+                  aria-label="Next media page"
+                  disabled={mediaPage >= totalPages}
+                  onClick={(): void =>
+                    setMediaPage((currentPage) => Math.min(totalPages, currentPage + 1))
+                  }
+                  size="small"
+                  variant="outlined"
+                >
+                  Next
+                </Button>
+              </Stack>
+            </Stack>
+          ) : null}
         </Stack>
       </StudioDeckSection>
     </Stack>

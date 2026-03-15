@@ -19,6 +19,7 @@ import {
   defaultColorBalance,
   defaultColorGradingSettings,
   defaultTransformSettings,
+  normalizeTransformSettings,
   type ColorGradingSettings,
   type RGBColorBalance,
   type TransformSettings,
@@ -118,14 +119,14 @@ function parseTransformSettings(value: unknown): TransformSettings {
     return defaultTransformSettings;
   }
 
-  return {
+  return normalizeTransformSettings({
     flipX: asBoolean(record.flipX) ?? defaultTransformSettings.flipX,
     flipY: asBoolean(record.flipY) ?? defaultTransformSettings.flipY,
     panX: asNumber(record.panX) ?? defaultTransformSettings.panX,
     panY: asNumber(record.panY) ?? defaultTransformSettings.panY,
     rotationDeg: asNumber(record.rotationDeg) ?? defaultTransformSettings.rotationDeg,
     zoom: asNumber(record.zoom) ?? defaultTransformSettings.zoom,
-  };
+  });
 }
 
 function parseTimelineEnvelopePoints(value: unknown): readonly TimelineEnvelopePoint[] {

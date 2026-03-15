@@ -6,7 +6,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { useAudioContext } from '../context/AudioContext';
 import { useAIController } from '../controllers/AIController';
 import { useRenderController } from '../controllers/RenderController';
@@ -21,24 +21,33 @@ function StatusMetric({
   readonly label: string;
   readonly value: string;
 }): JSX.Element {
+  const theme = useTheme();
+
   return (
     <Box
       sx={{
         p: 1.2,
-        borderRadius: '18px',
-        border: '1px solid rgba(15,79,99,0.08)',
-        bgcolor: alpha('#fffaf4', 0.62),
+        borderRadius: '20px',
+        border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+        background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+          theme.palette.auteura.surface,
+          0.8,
+        )} 100%)`,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
       }}
     >
-      <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block' }}>
+      <Typography variant="overline" sx={{ color: 'secondary.light', display: 'block' }}>
         {label}
       </Typography>
-      <Typography variant="body2">{value}</Typography>
+      <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600 }}>
+        {value}
+      </Typography>
     </Box>
   );
 }
 
 export function MonitoringOverviewPanel(): JSX.Element {
+  const theme = useTheme();
   const { audioMeters } = useAudioContext();
   const {
     activeFeatures,
@@ -146,9 +155,13 @@ export function MonitoringOverviewPanel(): JSX.Element {
         <Box
           sx={{
             p: 1.2,
-            borderRadius: '18px',
-            border: '1px solid rgba(15,79,99,0.08)',
-            bgcolor: alpha('#fffaf4', 0.62),
+            borderRadius: '20px',
+            border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+            background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+              theme.palette.auteura.surface,
+              0.8,
+            )} 100%)`,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
           }}
         >
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.75 }}>
@@ -221,9 +234,13 @@ export function MonitoringOverviewPanel(): JSX.Element {
                 key={recommendation.id}
                 sx={{
                   p: 1.2,
-                  borderRadius: '18px',
-                  border: '1px solid rgba(15,79,99,0.08)',
-                  bgcolor: alpha('#fffaf4', 0.62),
+                  borderRadius: '20px',
+                  border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+                  background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.88)} 0%, ${alpha(
+                    theme.palette.auteura.surface,
+                    0.8,
+                  )} 100%)`,
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
                 }}
               >
                 <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">

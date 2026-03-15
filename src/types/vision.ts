@@ -184,6 +184,15 @@ export interface VisionResultsResponse {
   readonly type: 'RESULTS';
 }
 
+export interface VisionSkippedResponse {
+  readonly payload: {
+    readonly reason: 'models-not-ready';
+    readonly requestId: number;
+    readonly timestamp: number;
+  };
+  readonly type: 'SKIPPED';
+}
+
 export interface VisionErrorResponse {
   readonly payload: {
     readonly message: string;
@@ -196,4 +205,5 @@ export type VisionWorkerResponse =
   | VisionErrorResponse
   | VisionInitErrorResponse
   | VisionInitSuccessResponse
+  | VisionSkippedResponse
   | VisionResultsResponse;

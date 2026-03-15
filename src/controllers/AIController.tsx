@@ -691,6 +691,16 @@ export function AIController({ children }: PropsWithChildren): JSX.Element {
           return;
         }
 
+        if (message.type === 'SKIPPED') {
+          workerBusyRef.current = false;
+
+          if (message.payload.reason === 'models-not-ready') {
+            updateDiagnostics(diagnosticsServiceRef.current.recordNotReadySkip());
+          }
+
+          return;
+        }
+
         workerBusyRef.current = false;
         recordWorkerError(message.payload.message, message.payload.requestId);
       };

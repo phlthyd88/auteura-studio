@@ -6,7 +6,6 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
 import { StudioDeckSection } from './StudioDeckSection';
 import { useAIController } from '../controllers/AIController';
 import { useCameraController } from '../controllers/CameraController';
@@ -30,9 +29,11 @@ export function PerformanceDashboard(): JSX.Element {
     diagnostics,
     effectiveMode,
     forceBackgroundBlurPreview,
+    forceScopesPreview,
     mode,
     previewQualityOverride,
     setForceBackgroundBlurPreview,
+    setForceScopesPreview,
     setMode,
     setPreviewQualityOverride,
   } = usePerformanceModeContext();
@@ -76,7 +77,7 @@ export function PerformanceDashboard(): JSX.Element {
               sx={{
                 p: 1,
                 borderRadius: 3,
-                bgcolor: alpha('#0e5970', 0.06),
+                bgcolor: 'rgba(32,194,197,0.08)',
                 textAlign: 'center',
               }}
             >
@@ -89,7 +90,7 @@ export function PerformanceDashboard(): JSX.Element {
               sx={{
                 p: 1,
                 borderRadius: 3,
-                bgcolor: alpha('#c06e28', 0.08),
+                bgcolor: 'rgba(192,110,40,0.1)',
                 textAlign: 'center',
               }}
             >
@@ -102,7 +103,7 @@ export function PerformanceDashboard(): JSX.Element {
               sx={{
                 p: 1,
                 borderRadius: 3,
-                bgcolor: alpha('#0e5970', 0.06),
+                bgcolor: 'rgba(32,194,197,0.08)',
                 textAlign: 'center',
               }}
             >
@@ -115,7 +116,7 @@ export function PerformanceDashboard(): JSX.Element {
               sx={{
                 p: 1,
                 borderRadius: 3,
-                bgcolor: alpha('#c06e28', 0.08),
+                bgcolor: 'rgba(192,110,40,0.1)',
                 textAlign: 'center',
               }}
             >
@@ -148,7 +149,13 @@ export function PerformanceDashboard(): JSX.Element {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Scopes: {capabilities.allowScopes ? capabilities.scopeAnalysisMode : 'disabled'}
+            {forceScopesPreview ? ' (forced)' : ''}
           </Typography>
+          {diagnostics.scopeStatusReason === null ? null : (
+            <Typography variant="body2" color="text.secondary">
+              {diagnostics.scopeStatusReason}
+            </Typography>
+          )}
         </Stack>
       </StudioDeckSection>
 
@@ -182,6 +189,15 @@ export function PerformanceDashboard(): JSX.Element {
               />
             }
             label="Force background blur in preview"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={forceScopesPreview}
+                onChange={(event): void => setForceScopesPreview(event.target.checked)}
+              />
+            }
+            label="Force scopes in preview"
           />
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             {(['auto', 'quality', 'balanced', 'performance'] as const).map((candidateMode) => (

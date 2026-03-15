@@ -22,9 +22,13 @@ import {
   saveCapturePreset,
 } from '../services/CapturePresetStorageService';
 import {
+  appendChunkedRecordingMediaChunk,
   clearAll as clearStoredMedia,
+  createChunkedRecordingMedia,
   deleteMedia as deleteStoredMedia,
+  discardChunkedRecordingMedia,
   ensureImportCopyCapacity,
+  finalizeChunkedRecordingMedia,
   getAllMedia,
   getMediaStorageStats,
   resetMediaDatabase as resetStoredMediaDatabase,
@@ -819,6 +823,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
 
     setIsProcessingCapture(true);
     setError(null);
+    let pendingRecordingId: string | null = null;
 
     try {
       const countdownCompleted = await runCountdown();
@@ -846,11 +851,29 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
             };
 
       const recorder = new MediaRecorder(combinedStream, recorderOptions);
-      const recordingChunks: Blob[] = [];
       const thumbnail = createThumbnail(canvasElement);
       const recordingWidth = canvasElement.width;
       const recordingHeight = canvasElement.height;
       const startedAt = Date.now();
+      const recordingId = crypto.randomUUID();
+      pendingRecordingId = recordingId;
+      let nextChunkSequence = 0;
+      let chunkPersistenceFailed = false;
+      let chunkWriteChain = Promise.resolve();
+
+      await createChunkedRecordingMedia({
+        captureMode: 'recording',
+        createdAt: startedAt,
+        height: recordingHeight,
+        id: recordingId,
+        mimeType: recorder.mimeType || mimeType || 'video/webm',
+        name: createMediaName('recording', recorder.mimeType || mimeType || 'video/webm', startedAt),
+        origin: 'capture',
+        ...(thumbnail === undefined ? {} : { thumbnail }),
+        timestamp: startedAt,
+        type: 'video',
+        width: recordingWidth,
+      });
 
       recordingStartedAtRef.current = startedAt;
       recordingStreamRef.current = combinedStream;
@@ -859,9 +882,28 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       setIsRecording(true);
 
       recorder.ondataavailable = (event: BlobEvent): void => {
-        if (event.data.size > 0) {
-          recordingChunks.push(event.data);
+        if (event.data.size <= 0 || chunkPersistenceFailed) {
+          return;
         }
+
+        const chunkSequence = nextChunkSequence;
+        nextChunkSequence += 1;
+        chunkWriteChain = chunkWriteChain
+          .then(async (): Promise<void> => {
+            await appendChunkedRecordingMediaChunk(recordingId, chunkSequence, event.data);
+          })
+          .catch((storageError: unknown): void => {
+            chunkPersistenceFailed = true;
+            setError(
+              storageError instanceof Error
+                ? storageError.message
+                : 'Failed to persist a recording segment.',
+            );
+
+            if (recorder.state !== 'inactive') {
+              recorder.stop();
+            }
+          });
       };
 
       recorder.onerror = (): void => {
@@ -870,40 +912,31 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       };
 
       recorder.onstop = (): void => {
-        const finalizedChunks = [...recordingChunks];
-        const nextBlob = new Blob(finalizedChunks, {
-          type: recorder.mimeType || mimeType || 'video/webm',
-        });
         const stoppedAt = Date.now();
-        const nextMediaItem: MediaItem = {
-          blob: nextBlob,
-          captureMode: 'recording',
-          createdAt: startedAt,
-          durationMs: Math.max(0, stoppedAt - startedAt),
-          height: recordingHeight,
-          id: crypto.randomUUID(),
-          isAvailable: true,
-          mimeType: nextBlob.type || 'video/webm',
-          name: createMediaName('recording', nextBlob.type || 'video/webm', startedAt),
-          origin: 'capture',
-          sizeBytes: nextBlob.size,
-          storageKind: 'copied-indexeddb',
-          ...(thumbnail === undefined ? {} : { thumbnail }),
-          timestamp: stoppedAt,
-          type: 'video',
-          width: recordingWidth,
-        };
         const currentRecordingStream = recordingStreamRef.current;
 
-        void saveMedia(nextMediaItem)
+        void chunkWriteChain
           .then(async (): Promise<void> => {
+            if (chunkPersistenceFailed) {
+              await discardChunkedRecordingMedia(recordingId);
+              return;
+            }
+
+            await finalizeChunkedRecordingMedia(recordingId, {
+              durationMs: Math.max(0, stoppedAt - startedAt),
+              timestamp: stoppedAt,
+            });
             await refreshMediaItems();
           })
-          .catch((storageError: unknown): void => {
-            setError(storageError instanceof Error ? storageError.message : 'Failed to persist recording.');
+          .catch(async (storageError: unknown): Promise<void> => {
+            setError(
+              storageError instanceof Error
+                ? storageError.message
+                : 'Failed to finalize the recording session.',
+            );
+            await discardChunkedRecordingMedia(recordingId).catch((): void => undefined);
           })
           .finally((): void => {
-            recordingChunks.length = 0;
             setIsRecording(false);
             setRecordingTime(0);
             mediaRecorderRef.current = null;
@@ -920,6 +953,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       };
 
       recorder.start(1000);
+      pendingRecordingId = null;
     } catch (recordingError: unknown) {
       recordingStreamRef.current?.getTracks().forEach((track: MediaStreamTrack): void => {
         track.stop();
@@ -929,6 +963,9 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       recordingStartedAtRef.current = null;
       setIsRecording(false);
       setRecordingTime(0);
+      if (pendingRecordingId !== null) {
+        await discardChunkedRecordingMedia(pendingRecordingId).catch((): void => undefined);
+      }
       setError(
         recordingError instanceof Error
           ? recordingError.message

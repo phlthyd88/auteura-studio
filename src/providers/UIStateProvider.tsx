@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState, type PropsWithChildren } from 'react';
 
-export type DrawerTab = 'ADJUST' | 'TIMELINE' | 'AI' | 'VIEW' | 'MEDIA' | 'SETTINGS';
+export type DrawerTab = 'MONITOR' | 'ADJUST' | 'TIMELINE' | 'PIPELINE' | 'SETTINGS';
 
 export interface UIStateContextValue {
   readonly activeDrawerTab: DrawerTab;
@@ -12,7 +12,7 @@ export interface UIStateContextValue {
 const UIStateContext = createContext<UIStateContextValue | null>(null);
 
 export function UIStateProvider({ children }: PropsWithChildren): JSX.Element {
-  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>('ADJUST');
+  const [activeDrawerTab, setActiveDrawerTab] = useState<DrawerTab>('MONITOR');
   const [isDrawerOpen, setDrawerOpen] = useState<boolean>(true);
 
   const contextValue = useMemo<UIStateContextValue>(

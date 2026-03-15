@@ -1,11 +1,19 @@
 import { RenderPipeline } from './RenderPipeline';
-import type { RenderFrameState, RenderableSourceElement } from '../types/render';
+import { RenderMode, type RenderFrameState, type RenderableSourceElement } from '../types/render';
 import type { CompositionRenderAdapter } from './render/CompositionRenderAdapter';
 
 interface GLRendererContextOptions {
   readonly alpha: boolean;
   readonly antialias: boolean;
   readonly preserveDrawingBuffer: boolean;
+}
+
+export interface GLRendererDiagnostics {
+  readonly apiExposed: boolean;
+  readonly backend: 'canvas-2d' | 'unavailable' | 'webgl';
+  readonly experimentalContextAvailable: boolean;
+  readonly message: string | null;
+  readonly webglContextAvailable: boolean;
 }
 
 const defaultContextOptions: GLRendererContextOptions = {
@@ -16,6 +24,8 @@ const defaultContextOptions: GLRendererContextOptions = {
 
 export class GLRenderer {
   private context: WebGLRenderingContext | null = null;
+  private diagnostics: GLRendererDiagnostics = defaultDiagnostics;
+  private fallbackContext: CanvasRenderingContext2D | null = null;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -24,6 +34,11 @@ export class GLRenderer {
   ) {}
 
   clear(): void {
+    if (this.fallbackContext !== null) {
+      this.fallbackContext.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      return;
+    }
+
     if (this.context === null) {
       return;
     }
@@ -32,30 +47,80 @@ export class GLRenderer {
   }
 
   dispose(): void {
-    if (this.context === null) {
-      return;
+    if (this.context !== null) {
+      this.pipeline.dispose(this.context);
+      this.context = null;
     }
 
-    this.pipeline.dispose(this.context);
-    this.context = null;
+    this.fallbackContext = null;
   }
 
   initialize(): void {
-    const nextContext = getWebglContext(this.canvas, this.contextOptions);
+    const nextContextResult = getWebglContext(this.canvas, this.contextOptions);
+    this.diagnostics = {
+      ...defaultDiagnostics,
+      experimentalContextAvailable: nextContextResult.experimentalContextAvailable,
+      webglContextAvailable: nextContextResult.webglContextAvailable,
+    };
+    const nextContext = nextContextResult.context;
 
-    if (nextContext === null) {
-      throw new Error(
-        'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
-      );
+    if (nextContext !== null) {
+      const validationError = validateWebglContext(nextContext);
+
+      if (validationError === null) {
+        try {
+          this.context = nextContext;
+          this.fallbackContext = null;
+          this.diagnostics = {
+            ...this.diagnostics,
+            backend: 'webgl',
+            message: null,
+          };
+          this.resizeToDisplaySize();
+          this.pipeline.initialize(nextContext, this.canvas.width, this.canvas.height);
+          return;
+        } catch (initializationError: unknown) {
+          if (this.context !== null) {
+            this.pipeline.dispose(this.context);
+          }
+          this.context = null;
+
+          if (this.initializeCanvasFallback('WebGL initialization failed. Falling back to 2D preview.', initializationError)) {
+            return;
+          }
+
+          throw initializationError;
+        }
+      }
+
+      if (this.initializeCanvasFallback(validationError)) {
+        return;
+      }
+
+      throw new Error(validationError);
     }
 
-    this.context = nextContext;
-    this.resizeToDisplaySize();
-    this.pipeline.initialize(nextContext, this.canvas.width, this.canvas.height);
+    if (this.initializeCanvasFallback(
+      'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
+    )) {
+      return;
+    }
+
+    throw new Error(
+      'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
+    );
   }
 
   getMemoryUsageBytes(): number {
+    if (this.fallbackContext !== null) {
+      return 0;
+    }
+
     return this.pipeline.getMemoryUsageBytes();
+  }
+
+  getDiagnostics(): GLRendererDiagnostics {
+    return this.diagnostics;
   }
 
   renderFrame(
@@ -63,6 +128,12 @@ export class GLRenderer {
     frameState: RenderFrameState,
     compositionAdapter?: CompositionRenderAdapter | null,
   ): void {
+    if (this.fallbackContext !== null) {
+      this.resizeToDisplaySize(frameState.performance.qualityScale);
+      this.renderFallbackFrame(sourceElement, frameState);
+      return;
+    }
+
     if (this.context === null) {
       throw new Error('GLRenderer render invoked before initialization.');
     }
@@ -78,7 +149,7 @@ export class GLRenderer {
   }
 
   private resizeToDisplaySize(qualityScale = 1): void {
-    if (this.context === null) {
+    if (this.context === null && this.fallbackContext === null) {
       return;
     }
 
@@ -95,8 +166,96 @@ export class GLRenderer {
       this.canvas.height = nextHeight;
     }
 
-    this.pipeline.resize(this.context, this.canvas.width, this.canvas.height, qualityScale);
+    if (this.context !== null) {
+      this.pipeline.resize(this.context, this.canvas.width, this.canvas.height, qualityScale);
+    }
   }
+
+  private initializeCanvasFallback(message: string, error?: unknown): boolean {
+    const nextFallbackContext = this.canvas.getContext('2d');
+
+    if (nextFallbackContext === null) {
+      this.diagnostics = {
+        ...this.diagnostics,
+        backend: 'unavailable',
+        message,
+      };
+      return false;
+    }
+
+    console.warn(message, error);
+    this.context = null;
+    this.fallbackContext = nextFallbackContext;
+    this.diagnostics = {
+      ...this.diagnostics,
+      backend: 'canvas-2d',
+      message,
+    };
+    this.resizeToDisplaySize();
+    return true;
+  }
+
+  private renderFallbackFrame(
+    sourceElement: RenderableSourceElement | null,
+    frameState: RenderFrameState,
+  ): void {
+    if (this.fallbackContext === null) {
+      return;
+    }
+
+    const context = this.fallbackContext;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+
+    context.clearRect(0, 0, width, height);
+
+    if (sourceElement === null || !isRenderableSourceReady(sourceElement)) {
+      return;
+    }
+
+    context.save();
+    context.filter = resolveCanvasFilter(frameState);
+    context.drawImage(sourceElement, 0, 0, width, height);
+    context.restore();
+  }
+}
+
+function resolveCanvasFilter(frameState: RenderFrameState): string {
+  switch (frameState.mode) {
+    case RenderMode.Monochrome:
+      return 'grayscale(1)';
+    case RenderMode.Inverted:
+      return 'invert(1)';
+    default:
+      return 'none';
+  }
+}
+
+function isFinitePositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+const defaultDiagnostics: GLRendererDiagnostics = {
+  apiExposed: typeof WebGLRenderingContext !== 'undefined',
+  backend: 'unavailable',
+  experimentalContextAvailable: false,
+  message: null,
+  webglContextAvailable: false,
+};
+
+function validateWebglContext(context: WebGLRenderingContext): string | null {
+  if (typeof context.isContextLost === 'function' && context.isContextLost()) {
+    return 'WebGL context was acquired in a lost state.';
+  }
+
+  const maxTextureSize: unknown = context.getParameter(context.MAX_TEXTURE_SIZE);
+  const maxRenderbufferSize: unknown = context.getParameter(context.MAX_RENDERBUFFER_SIZE);
+
+  if (!isFinitePositiveNumber(maxTextureSize) || !isFinitePositiveNumber(maxRenderbufferSize)) {
+    return 'WebGL context was acquired but GPU render-target limits were unreadable.';
+  }
+
+  return null;
 }
 
 function isWebglRenderingContext(value: unknown): value is WebGLRenderingContext {
@@ -116,24 +275,38 @@ function isWebglRenderingContext(value: unknown): value is WebGLRenderingContext
 function getWebglContext(
   canvas: HTMLCanvasElement,
   contextOptions: WebGLContextAttributes,
-): WebGLRenderingContext | null {
+): {
+  readonly context: WebGLRenderingContext | null;
+  readonly experimentalContextAvailable: boolean;
+  readonly webglContextAvailable: boolean;
+} {
   const primaryContext = canvas.getContext('webgl', contextOptions);
+  const webglContextAvailable = isWebglRenderingContext(primaryContext);
 
-  if (isWebglRenderingContext(primaryContext)) {
-    return primaryContext;
+  if (webglContextAvailable) {
+    return {
+      context: primaryContext,
+      experimentalContextAvailable: false,
+      webglContextAvailable: true,
+    };
   }
 
   const fallbackContext = canvas.getContext('experimental-webgl', contextOptions);
+  const experimentalContextAvailable = isWebglRenderingContext(fallbackContext);
 
-  return isWebglRenderingContext(fallbackContext) ? fallbackContext : null;
+  return {
+    context: experimentalContextAvailable ? fallbackContext : null,
+    experimentalContextAvailable,
+    webglContextAvailable,
+  };
 }
 
 function isRenderableSourceReady(sourceElement: RenderableSourceElement): boolean {
-  if (sourceElement instanceof HTMLVideoElement) {
+  if (typeof HTMLVideoElement !== 'undefined' && sourceElement instanceof HTMLVideoElement) {
     return sourceElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
   }
 
-  if (sourceElement instanceof HTMLImageElement) {
+  if (typeof HTMLImageElement !== 'undefined' && sourceElement instanceof HTMLImageElement) {
     return sourceElement.complete && sourceElement.naturalWidth > 0 && sourceElement.naturalHeight > 0;
   }
 

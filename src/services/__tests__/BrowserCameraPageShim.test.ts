@@ -63,8 +63,8 @@ class MockRTCPeerConnection {
 
   async setRemoteDescription(): Promise<void> {}
 
-  async createAnswer(): Promise<{ sdp: string; type: 'answer' }> {
-    return { sdp: 'answer-sdp', type: 'answer' };
+  createAnswer(): Promise<{ sdp: string; type: 'answer' }> {
+    return Promise.resolve({ sdp: 'answer-sdp', type: 'answer' });
   }
 
   async setLocalDescription(): Promise<void> {}
@@ -120,14 +120,14 @@ function loadShimHarness(): {
     dispatchEvent(): boolean {
       return true;
     },
-    async enumerateDevices(): Promise<MediaDeviceInfo[]> {
-      return [];
+    enumerateDevices(): Promise<MediaDeviceInfo[]> {
+      return Promise.resolve([]);
     },
-    async getDisplayMedia(): Promise<MediaStream> {
-      throw new Error('Native getDisplayMedia should not be used in this test.');
+    getDisplayMedia(): Promise<MediaStream> {
+      return Promise.reject(new Error('Native getDisplayMedia should not be used in this test.'));
     },
-    async getUserMedia(): Promise<never> {
-      throw new Error('Native getUserMedia should not be used in this test.');
+    getUserMedia(): Promise<never> {
+      return Promise.reject(new Error('Native getUserMedia should not be used in this test.'));
     },
     getSupportedConstraints(): MediaTrackSupportedConstraints {
       return {};

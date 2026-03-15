@@ -1,5 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 
+type StudioConsole = 'adjust' | 'monitor' | 'pipeline' | 'settings' | 'timeline';
+
+const studioConsoleLabels: Record<StudioConsole, string> = {
+  adjust: 'Grade Adjust',
+  monitor: 'Signal Monitor',
+  pipeline: 'Flow Pipeline',
+  settings: 'System Settings',
+  timeline: 'Edit Timeline',
+};
+
+async function openStudioConsole(page: Page, consoleName: StudioConsole): Promise<void> {
+  await page.getByRole('button', { name: studioConsoleLabels[consoleName] }).click();
+}
+
 async function seedExportSourceVideo(page: Page): Promise<void> {
   await page.evaluate(async (): Promise<void> => {
     const globalScope = globalThis as typeof globalThis & {
@@ -125,6 +139,104 @@ async function seedExportSourceVideo(page: Page): Promise<void> {
       width: canvas.width,
     });
   });
+}
+
+async function seedPressureLibrary(
+  page: Page,
+  options: {
+    readonly logicalItemBytes: number;
+    readonly totalItems: number;
+  },
+): Promise<void> {
+  await page.evaluate(
+    async ({
+      logicalItemBytes,
+      totalItems,
+    }: {
+      readonly logicalItemBytes: number;
+      readonly totalItems: number;
+    }): Promise<void> => {
+      const { resetMediaDatabase } = await import('/src/services/MediaStorageService.ts');
+      await resetMediaDatabase();
+
+      await new Promise<void>((resolve, reject): void => {
+        const openRequest = window.indexedDB.open('AuteuraDB', 6);
+
+        openRequest.onupgradeneeded = (): void => {
+          const database = openRequest.result;
+
+          if (!database.objectStoreNames.contains('media')) {
+            const mediaStore = database.createObjectStore('media', {
+              keyPath: 'id',
+            });
+            mediaStore.createIndex('timestamp', 'timestamp');
+            mediaStore.createIndex('type', 'type');
+            mediaStore.createIndex('kind', 'kind');
+          }
+
+          if (!database.objectStoreNames.contains('mediaBlobs')) {
+            database.createObjectStore('mediaBlobs', {
+              keyPath: 'mediaId',
+            });
+          }
+
+          if (!database.objectStoreNames.contains('migrationAudit')) {
+            database.createObjectStore('migrationAudit', {
+              keyPath: 'id',
+            });
+          }
+
+          if (!database.objectStoreNames.contains('recordingChunks')) {
+            const recordingChunkStore = database.createObjectStore('recordingChunks', {
+              keyPath: ['recordingId', 'sequence'],
+            });
+            recordingChunkStore.createIndex('recordingId', 'recordingId');
+          }
+        };
+
+        openRequest.onerror = (): void => {
+          reject(openRequest.error ?? new Error('Failed to open IndexedDB for pressure seeding.'));
+        };
+
+        openRequest.onsuccess = (): void => {
+          const database = openRequest.result;
+          const transaction = database.transaction(['media', 'mediaBlobs'], 'readwrite');
+          const mediaStore = transaction.objectStore('media');
+          const mediaBlobStore = transaction.objectStore('mediaBlobs');
+          const sharedBlob = new Blob(['x'], { type: 'video/webm' });
+
+          transaction.oncomplete = (): void => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = (): void => {
+            reject(transaction.error ?? new Error('Failed to seed pressure library.'));
+          };
+
+          for (let index = 0; index < totalItems; index += 1) {
+            const id = `pressure-item-${index.toString().padStart(4, '0')}`;
+            mediaStore.put({
+              captureMode: 'recording',
+              createdAt: index,
+              id,
+              kind: 'copied-indexeddb',
+              mimeType: 'video/webm',
+              name: `${id}.webm`,
+              origin: 'capture',
+              sizeBytes: logicalItemBytes,
+              timestamp: index,
+              type: 'video',
+            });
+            mediaBlobStore.put({
+              blob: sharedBlob,
+              mediaId: id,
+            });
+          }
+        };
+      });
+    },
+    options,
+  );
 }
 
 test.beforeEach(async ({ page }): Promise<void> => {
@@ -324,17 +436,17 @@ test('launches, records, persists after reload, and exposes download/delete acti
 
   await expect(page.getByText('Viewfinder Output')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openStudioConsole(page, 'pipeline');
   await page.getByRole('button', { name: 'Start Recording' }).click();
   await page.waitForTimeout(650);
   await page.getByRole('button', { name: 'Stop Recording' }).click();
 
-  await page.getByRole('button', { name: 'Media' }).click();
+  await openStudioConsole(page, 'pipeline');
   const firstMediaItem = page.locator('li').first();
   await expect(firstMediaItem).toContainText('recording');
 
   await page.reload();
-  await page.getByRole('button', { name: 'Media' }).click();
+  await openStudioConsole(page, 'pipeline');
   await expect(page.locator('li').first()).toContainText('recording');
 
   const downloadPromise = page.waitForEvent('download');
@@ -351,7 +463,8 @@ test('imports a LUT, saves a look preset, and restores both after reload', async
 }): Promise<void> => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'Adjust' }).click();
+  await openStudioConsole(page, 'adjust');
+  await page.getByRole('button', { name: /Look library/i }).click();
 
   await page.locator('input[type="file"]').setInputFiles({
     mimeType: 'application/octet-stream',
@@ -375,7 +488,7 @@ test('imports a LUT, saves a look preset, and restores both after reload', async
     ),
   });
 
-  await expect(page.getByText('Playwright Teal.cube', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load imported LUT Playwright Teal' })).toBeVisible();
   await page.getByRole('button', { name: 'Load imported LUT Playwright Teal' }).click();
 
   const presetNameField = page.getByLabel('Preset name');
@@ -385,12 +498,13 @@ test('imports a LUT, saves a look preset, and restores both after reload', async
   await expect(page.getByText('Playwright Look')).toBeVisible();
 
   await page.reload();
-  await page.getByRole('button', { name: 'Adjust' }).click();
+  await openStudioConsole(page, 'adjust');
+  await page.getByRole('button', { name: /Look library/i }).click();
 
-  await expect(page.getByText('Playwright Teal.cube', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load imported LUT Playwright Teal' })).toBeVisible();
   await expect(page.getByText('Playwright Look', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Load look preset Playwright Look' }).click();
-  await expect(page.getByText('Playwright Teal.cube', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load imported LUT Playwright Teal' })).toBeVisible();
 });
 
 test('enables portrait retouch and applies a scene insight recommendation', async ({
@@ -398,12 +512,12 @@ test('enables portrait retouch and applies a scene insight recommendation', asyn
 }): Promise<void> => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'AI' }).click();
+  await openStudioConsole(page, 'pipeline');
   const portraitToggle = page.getByRole('checkbox', { name: /Portrait retouch/i });
   await portraitToggle.check();
   await expect(portraitToggle).toBeChecked();
 
-  await page.getByRole('button', { name: 'View' }).click();
+  await openStudioConsole(page, 'monitor');
   const applyInsightButton = page.locator('button[aria-label^="Apply scene insight"]').first();
   await expect(applyInsightButton).toBeVisible({ timeout: 10000 });
   const insightLabel = await applyInsightButton.getAttribute('aria-label');
@@ -423,7 +537,7 @@ test('shows browser camera setup guidance and fallback workflow', async ({
 }): Promise<void> => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'View' }).click();
+  await openStudioConsole(page, 'monitor');
 
   await expect(page.getByRole('heading', { name: 'Setup' })).toBeVisible();
   await expect(page.getByText('Extension not detected')).toBeVisible();
@@ -458,10 +572,10 @@ test('pauses timelapse while hidden and does not burst missed captures on resume
   };
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Media' }).click();
+  await openStudioConsole(page, 'pipeline');
   await page.getByRole('button', { name: 'Reset DB' }).click();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openStudioConsole(page, 'pipeline');
   await page.getByLabel('Timelapse Interval').click();
   await page.getByRole('option', { name: '1 second' }).click();
   await page.getByRole('button', { name: 'Start Timelapse' }).click();
@@ -492,7 +606,7 @@ test('pauses timelapse while hidden and does not burst missed captures on resume
   });
   await page.getByRole('button', { name: /Stop Timelapse/i }).click();
 
-  await page.getByRole('button', { name: 'Media' }).click();
+  await openStudioConsole(page, 'pipeline');
   const timelapseItems = page.getByText(/timelapse-/i);
   const timelapseItemCount = await timelapseItems.count();
 
@@ -505,10 +619,10 @@ test('exports a manifest project package after adding media to the timeline', as
 }): Promise<void> => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openStudioConsole(page, 'pipeline');
   await page.getByRole('button', { name: 'Capture Photo' }).click();
 
-  await page.getByRole('button', { name: 'Timeline' }).click();
+  await openStudioConsole(page, 'timeline');
   await page.getByRole('button', { name: 'Add' }).first().click();
 
   await page.evaluate((): void => {
@@ -535,7 +649,7 @@ test('exports a WebM timeline with a multi-segment playable source', async ({
   await seedExportSourceVideo(page);
   await page.reload();
 
-  await page.getByRole('button', { name: 'Timeline' }).click();
+  await openStudioConsole(page, 'timeline');
   await expect(page.getByText('playwright-export-source.webm', { exact: true })).toBeVisible();
   const sourceMediaCard = page
     .getByText('playwright-export-source.webm', { exact: true })
@@ -550,8 +664,105 @@ test('exports a WebM timeline with a multi-segment playable source', async ({
     timeout: 120_000,
   });
 
-  await page.getByRole('button', { name: 'Media' }).click();
+  await openStudioConsole(page, 'pipeline');
   await expect(page.getByText(/timeline-export-\d+\.webm/i)).toBeVisible({
     timeout: 15_000,
   });
+});
+
+test('opens a large metadata-heavy media library without page failures', async ({
+  page,
+}): Promise<void> => {
+  test.setTimeout(90_000);
+
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  page.on('console', (message): void => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error): void => {
+    pageErrors.push(error.message);
+  });
+
+  await page.goto('/');
+  await seedPressureLibrary(page, {
+    logicalItemBytes: 4 * 1024 * 1024,
+    totalItems: 192,
+  });
+  await page.reload();
+
+  const openStartedAt = Date.now();
+  await openStudioConsole(page, 'pipeline');
+  await expect(page.getByRole('heading', { name: 'Media Library' })).toBeVisible();
+  await expect(page.getByText('pressure-item-0191.webm', { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+  const openDurationMs = Date.now() - openStartedAt;
+
+  await expect
+    .poll(async (): Promise<number> =>
+      page.getByRole('button', { name: /^Download pressure-item-/ }).count(),
+    )
+    .toBe(50);
+  await expect(page.getByText('Showing 1-50 of 192', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next media page' }).click();
+  await expect(page.getByText('pressure-item-0141.webm', { exact: true })).toBeVisible();
+  await expect(page.getByText('Showing 51-100 of 192', { exact: true })).toBeVisible();
+
+  expect(openDurationMs).toBeLessThan(10_000);
+  expect(
+    consoleErrors.filter((message: string): boolean =>
+      !message.includes('The AudioContext was not allowed to start'),
+    ),
+  ).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('falls back to the Canvas 2D renderer when WebGL is unavailable', async ({
+  page,
+}): Promise<void> => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  page.on('console', (message): void => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error): void => {
+    pageErrors.push(error.message);
+  });
+
+  await page.addInitScript((): void => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+
+    HTMLCanvasElement.prototype.getContext = function patchedGetContext(
+      this: HTMLCanvasElement,
+      contextId: string,
+      options?: CanvasRenderingContext2DSettings,
+    ): RenderingContext | null {
+      if (contextId === 'webgl' || contextId === 'experimental-webgl') {
+        return null;
+      }
+
+      return originalGetContext.call(this, contextId, options);
+    };
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByText('Viewfinder Output')).toBeVisible();
+  await expect(
+    page.getByText('WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.'),
+  ).toBeVisible();
+  await expect(page.getByText('active backend: canvas-2d')).toBeVisible();
+  await expect(page.getByText('Renderer')).toBeVisible();
+  await expect(page.getByText('Canvas 2D')).toBeVisible();
+
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });

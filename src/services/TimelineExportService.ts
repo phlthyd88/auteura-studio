@@ -13,6 +13,10 @@ import { defaultPictureInPictureConfig } from '../types/compositor';
 import {
   composeTimelinePlaybackAudioInstructions,
 } from './TimelineCompositionEngine';
+import {
+  LruDecodedAudioBufferCache,
+  type DecodedAudioBufferCache,
+} from './DecodedAudioBufferCache';
 import { TimelineAudioEngine } from './TimelineAudioEngine';
 import {
   defaultRenderComparisonConfig,
@@ -328,23 +332,23 @@ async function prepareExportAudio(
   };
 }
 
-async function prepareOfflineExportAudio(
+function prepareOfflineExportAudio(
   project: TimelineProject,
 ): Promise<PreparedOfflineExportAudio | null> {
   const audioInstructions = composeTimelinePlaybackAudioInstructions(project, 0, 0);
 
   if (audioInstructions.length === 0) {
-    return null;
+    return Promise.resolve(null);
   }
 
   if (typeof window === 'undefined' || typeof window.OfflineAudioContext === 'undefined') {
-    return null;
+    return Promise.resolve(null);
   }
 
-  return {
+  return Promise.resolve({
     durationMs: project.durationMs,
     sampleRate: offlineExportAudioSampleRate,
-  };
+  });
 }
 
 function resolveOfflineAudioFrameLength(durationMs: number, sampleRate: number): number {
@@ -413,7 +417,7 @@ async function renderOfflineAudioSegment(
   project: TimelineProject,
   startMs: number,
   durationMs: number,
-  decodedBufferCache: Map<string, Promise<AudioBuffer | null>>,
+  decodedBufferCache: DecodedAudioBufferCache,
 ): Promise<AudioBuffer | null> {
   const segmentInstructions = resolveOfflineSegmentAudioInstructions(project, startMs, durationMs);
 
@@ -444,7 +448,7 @@ async function renderOfflineAudioSegment(
     await audioEngine.scheduleInstructions(segmentInstructions);
     return await offlineAudioContext.startRendering();
   } finally {
-    audioEngine.clearCache();
+    audioEngine.stop();
   }
 }
 
@@ -580,7 +584,7 @@ async function writeOfflineAudioTrack(
   signal?: AbortSignal,
 ): Promise<void> {
   const { sampleRate } = offlineAudio;
-  const decodedBufferCache = new Map<string, Promise<AudioBuffer | null>>();
+  const decodedBufferCache = new LruDecodedAudioBufferCache();
   let writtenFrames = 0;
 
   for (const range of resolveOfflineAudioChunkRanges(offlineAudio.durationMs)) {
@@ -644,6 +648,8 @@ async function writeOfflineAudioTrack(
 
     writtenFrames += totalFrames;
   }
+
+  decodedBufferCache.clear();
 }
 
 async function exportTimelineWithGeneratedTracks(

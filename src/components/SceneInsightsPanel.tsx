@@ -7,10 +7,11 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useState } from 'react';
 import { useRenderController } from '../controllers/RenderController';
 import type { SceneInsight } from '../services/SceneAnalysisService';
+import { maximumTransformZoom, minimumTransformZoom } from '../types/color';
 import { StudioDeckSection } from './StudioDeckSection';
 
 function getConfidenceLabel(confidence: number): string {
@@ -26,6 +27,7 @@ function getConfidenceLabel(confidence: number): string {
 }
 
 export function SceneInsightsPanel(): JSX.Element {
+  const theme = useTheme();
   const { colorGrading, sceneAnalysis, setColorGrading, setTransform, transform } = useRenderController();
   const [dismissedInsightIds, setDismissedInsightIds] = useState<readonly string[]>([]);
 
@@ -85,22 +87,22 @@ export function SceneInsightsPanel(): JSX.Element {
       if (insight.id === 'framing-shift-left' || insight.id === 'framing-shift-right') {
         setTransform({
           ...transform,
-          panX: Math.max(-1, Math.min(1, transform.panX - offsetX * 0.35)),
+          panX: transform.panX - offsetX * 0.35,
         });
       } else if (insight.id === 'framing-raise-subject' || insight.id === 'framing-lower-subject') {
         setTransform({
           ...transform,
-          panY: Math.max(-1, Math.min(1, transform.panY - offsetY * 0.35)),
+          panY: transform.panY - offsetY * 0.35,
         });
       } else if (insight.id === 'framing-zoom-in') {
         setTransform({
           ...transform,
-          zoom: Math.min(2.5, transform.zoom + 0.12),
+          zoom: Math.min(maximumTransformZoom, transform.zoom + 0.12),
         });
       } else if (insight.id === 'framing-zoom-out') {
         setTransform({
           ...transform,
-          zoom: Math.max(0.75, transform.zoom - 0.12),
+          zoom: Math.max(minimumTransformZoom, transform.zoom - 0.12),
         });
       }
 
@@ -111,8 +113,8 @@ export function SceneInsightsPanel(): JSX.Element {
     if (insight.category === 'headroom') {
       const nextPanY =
         insight.id === 'headroom-tight'
-          ? Math.max(-1, Math.min(1, transform.panY + 0.08))
-          : Math.max(-1, Math.min(1, transform.panY - 0.08));
+          ? transform.panY + 0.08
+          : transform.panY - 0.08;
       setTransform({
         ...transform,
         panY: nextPanY,
@@ -141,15 +143,21 @@ export function SceneInsightsPanel(): JSX.Element {
             key={insight.id}
             sx={{
               p: 1.35,
-              borderRadius: '18px',
-              border: '1px solid rgba(15,79,99,0.08)',
-              bgcolor: alpha('#fffaf4', 0.64),
+              borderRadius: '20px',
+              border: `1px solid ${alpha(theme.palette.auteura.borderSubtle, 0.96)}`,
+              background: `linear-gradient(180deg, ${alpha(theme.palette.auteura.surfaceElevated, 0.9)} 0%, ${alpha(
+                theme.palette.auteura.surface,
+                0.82,
+              )} 100%)`,
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
             }}
           >
             <Stack spacing={1}>
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2">{insight.title}</Typography>
+                  <Typography variant="subtitle2" sx={{ color: 'text.primary', fontWeight: 800 }}>
+                    {insight.title}
+                  </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {insight.description}
                   </Typography>
