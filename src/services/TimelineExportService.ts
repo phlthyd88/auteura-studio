@@ -854,12 +854,18 @@ export async function exportTimelineToMediaItem(
     const abortSignal = options.signal;
 
     let animationFrameId: number | null = null;
+    let fallbackTimeoutId: number | null = null;
     let settled = false;
 
     function cleanup(): void {
       if (animationFrameId !== null) {
         window.cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
+      }
+
+      if (fallbackTimeoutId !== null) {
+        window.clearTimeout(fallbackTimeoutId);
+        fallbackTimeoutId = null;
       }
 
       exportStream.getTracks().forEach((track: MediaStreamTrack): void => {
@@ -938,7 +944,16 @@ export async function exportTimelineToMediaItem(
       const audioAnchorSeconds = preparedAudio?.anchorSeconds ?? null;
       const audioContextStartTime = preparedAudio?.audioContext.currentTime ?? null;
 
+      const clearFallback = (): void => {
+        if (fallbackTimeoutId !== null) {
+          window.clearTimeout(fallbackTimeoutId);
+          fallbackTimeoutId = null;
+        }
+      };
+
       const step = async (now: number): Promise<void> => {
+        clearFallback();
+
         if (rafStartTime === null) {
           rafStartTime = now;
         }
@@ -993,11 +1008,22 @@ export async function exportTimelineToMediaItem(
           return;
         }
 
-        animationFrameId = window.requestAnimationFrame((timestamp: number): void => {
+        const nextStep = (timestamp: number): void => {
           void step(timestamp).catch((error: unknown): void => {
             reject(error instanceof Error ? error : new Error('Timeline export render failed.'));
           });
-        });
+        };
+
+        animationFrameId = window.requestAnimationFrame(nextStep);
+
+        // Fallback for CI/headless environments where RAF might be throttled.
+        fallbackTimeoutId = window.setTimeout((): void => {
+          if (animationFrameId !== null) {
+            window.cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+          nextStep(performance.now());
+        }, 100);
       };
 
       animationFrameId = window.requestAnimationFrame((timestamp: number): void => {

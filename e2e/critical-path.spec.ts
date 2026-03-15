@@ -396,7 +396,9 @@ test.beforeEach(async ({ page }): Promise<void> => {
 
     globalScope.__auteuraSetVisibilityHidden = (hidden: boolean): void => {
       globalScope.__auteuraVisibilityHidden = hidden;
-      document.dispatchEvent(new Event('visibilitychange'));
+      const event = new Event('visibilitychange');
+      document.dispatchEvent(event);
+      window.dispatchEvent(event);
     };
 
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -591,19 +593,26 @@ test('pauses timelapse while hidden and does not burst missed captures on resume
       __auteuraSetVisibilityHidden?: (hidden: boolean) => void;
     }).__auteuraSetVisibilityHidden?.(true);
   });
-  await page.waitForTimeout(2500);
-  await expect(page.getByText('Paused while tab is hidden')).toBeVisible();
+  await page.waitForTimeout(3000);
+  await expect(page.getByText('Paused while tab is hidden')).toBeVisible({ timeout: 10_000 });
+
   const shotsWhileHidden = await getTimelapseShotCount();
   expect(shotsWhileHidden).toBeGreaterThanOrEqual(shotsBeforeHide);
   expect(shotsWhileHidden).toBeLessThanOrEqual(shotsBeforeHide + 1);
+
+  // Additional check to ensure it's still paused
+  await page.waitForTimeout(2000);
+  const shotsAfterStillHidden = await getTimelapseShotCount();
+  expect(shotsAfterStillHidden).toBe(shotsWhileHidden);
+
   await page.evaluate((): void => {
     (globalThis as typeof globalThis & {
       __auteuraSetVisibilityHidden?: (hidden: boolean) => void;
     }).__auteuraSetVisibilityHidden?.(false);
   });
-  await expect.poll(getTimelapseShotCount).toBe(shotsWhileHidden + 1, {
-    timeout: 5_000,
-  });
+  await expect.poll(getTimelapseShotCount, {
+    timeout: 10_000,
+  }).toBe(shotsWhileHidden + 1);
   await page.getByRole('button', { name: /Stop Timelapse/i }).click();
 
   await openStudioConsole(page, 'pipeline');

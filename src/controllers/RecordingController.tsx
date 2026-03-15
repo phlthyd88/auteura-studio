@@ -625,6 +625,14 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       return;
     }
 
+    // Robustness: If we are visible but still in paused-hidden state, resume.
+    if (timelapseStateRef.current === 'paused-hidden' && !document.hidden) {
+      updateTimelapseState('running');
+      postTimelapseWorkerMessage({
+        type: 'RESUME',
+      });
+    }
+
     if (
       timelapseStateRef.current !== 'running' ||
       isRecordingRef.current ||
