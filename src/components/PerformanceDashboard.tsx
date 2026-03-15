@@ -121,10 +121,13 @@ export function PerformanceDashboard(): JSX.Element {
               }}
             >
               <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block', mb: 0.2 }}>
+              <Typography variant="overline" sx={{ color: 'secondary.dark', display: 'block', mb: 0.2 }}>
                 Est. Latency
               </Typography>
               <Typography variant="body2">
-                {(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms
+                {aiDiagnostics.averageProcessingDurationMs === 0
+                  ? 'n/a'
+                  : `${(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms`}
               </Typography>
             </Box>
           </Box>
