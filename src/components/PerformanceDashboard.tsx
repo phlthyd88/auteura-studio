@@ -125,7 +125,7 @@ export function PerformanceDashboard(): JSX.Element {
                 Est. Latency
               </Typography>
               <Typography variant="body2">
-                {aiDiagnostics.averageProcessingDurationMs === 0
+                {!(activeFeatures.faceTracking || activeFeatures.backgroundBlur)
                   ? 'n/a'
                   : `${(diagnostics.averageFrameTimeMs + aiDiagnostics.averageProcessingDurationMs).toFixed(1)} ms`}
               </Typography>
