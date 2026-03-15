@@ -934,16 +934,15 @@ export async function exportTimelineToMediaItem(
     });
 
     await new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
-      const startTime =
-        preparedAudio === null
-          ? performance.now() + exportStartDelayMilliseconds
-          : performance.now() +
-            Math.max(
-              0,
-              (preparedAudio.anchorSeconds - preparedAudio.audioContext.currentTime) * 1000,
-            );
+      let rafStartTime: number | null = null;
+      const audioAnchorSeconds = preparedAudio?.anchorSeconds ?? null;
+      const audioContextStartTime = preparedAudio?.audioContext.currentTime ?? null;
 
       const step = async (now: number): Promise<void> => {
+        if (rafStartTime === null) {
+          rafStartTime = now;
+        }
+
         if (abortSignal?.aborted) {
           try {
             recorder.stop();
@@ -955,9 +954,15 @@ export async function exportTimelineToMediaItem(
           return;
         }
 
+        const elapsedSinceStartMs = now - rafStartTime;
+        const audioWaitMs =
+          audioAnchorSeconds !== null && audioContextStartTime !== null
+            ? Math.max(0, (audioAnchorSeconds - audioContextStartTime) * 1000)
+            : exportStartDelayMilliseconds;
+
         const elapsedMs = Math.min(
           options.project.durationMs,
-          Math.max(0, now - startTime),
+          Math.max(0, elapsedSinceStartMs - audioWaitMs),
         );
 
         try {
@@ -976,7 +981,9 @@ export async function exportTimelineToMediaItem(
 
         if (elapsedMs >= options.project.durationMs) {
           try {
-            recorder.stop();
+            if (recorder.state !== 'inactive') {
+              recorder.stop();
+            }
           } catch {
             reject(new Error('Timeline export failed to finalize the recording.'));
             return;

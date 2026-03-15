@@ -611,11 +611,22 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
   );
 
   const captureTimelapseFrame = useCallback(async (): Promise<void> => {
+    if (!isTimelapseCapturingRef.current || timelapseCaptureInFlightRef.current) {
+      return;
+    }
+
+    if (document.hidden) {
+      if (timelapseStateRef.current === 'running') {
+        postTimelapseWorkerMessage({
+          type: 'PAUSE',
+        });
+        updateTimelapseState('paused-hidden');
+      }
+      return;
+    }
+
     if (
-      !isTimelapseCapturingRef.current ||
       timelapseStateRef.current !== 'running' ||
-      document.hidden ||
-      timelapseCaptureInFlightRef.current ||
       isRecordingRef.current ||
       isBurstCapturingRef.current
     ) {
