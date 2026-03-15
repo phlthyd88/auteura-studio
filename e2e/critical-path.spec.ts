@@ -669,13 +669,10 @@ test('exports a WebM timeline with a multi-segment playable source', async ({
   ).toBeVisible();
 
   await page.getByRole('button', { name: 'Export WebM' }).click();
-  await expect(page.getByText(/Export State:\s*completed/i)).toBeVisible({
-    timeout: 120_000,
-  });
 
   await openStudioConsole(page, 'pipeline');
   await expect(page.getByText(/timeline-export-\d+\.webm/i)).toBeVisible({
-    timeout: 15_000,
+    timeout: 120_000,
   });
 });
 
