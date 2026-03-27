@@ -1,7 +1,7 @@
 # AUTEURA-MAINT-006 — Fix canvas-capture virtual output track freezing in Chrome
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: bug
 - Priority: P1
 - Owner: codex
@@ -44,7 +44,6 @@ This breaks the primary Google Meet browser-camera path: the synthetic camera ap
 - `docs/browser-camera-compatibility-matrix.md`
 
 ## Root Cause Analysis
-Fill this in before coding.
 - Root cause: the virtual-output service clones video tracks derived from `canvas.captureStream()` twice in the browser-camera path: once when building the master output stream and again when leasing client streams. In Chrome, cloned canvas-capture video tracks can present one frame and then freeze permanently.
 - Symptom vs actual failure: the visible symptom is “Meet recognizes the camera and shows one frame, then freezes.” The actual failure is a track-lifecycle bug: the service is leasing cloned canvas-capture video tracks instead of a live direct canvas-capture video track.
 - Why current behavior happens: `replaceVideoTracks()` clones the canvas source video into `outputStream`, and `createClientOutputStream()` clones again from `outputStream`. `releaseClientOutputStream()` then assumes client tracks are independently owned and stops them on release.
@@ -97,6 +96,11 @@ volta run npx vitest run src/services/__tests__/AuteuraVirtualOutputService.test
 ```
 
 ## Progress Log
+### 2026-03-27 06:50 EDT
+- revalidated the current source after a code/ticket-drift review
+- confirmed the service still implements the intended dedicated-client-stream fix rather than a shared-master-track shortcut
+- confirmed the source still avoids cloned video tracks for leased clients while preserving explicit teardown of client-owned video streams and cloned audio tracks
+
 ### 2026-03-27 06:00
 - completed targeted validation and moved the ticket to `tickets/review/` with `Status: READY_FOR_REVIEW`
 - validation results:
@@ -132,7 +136,7 @@ volta run npx vitest run src/services/__tests__/AuteuraVirtualOutputService.test
   - implement a local service fix that gives each leased client a direct, non-cloned canvas-capture video source with explicit ownership
 
 ## Changed Files
-- tickets/review/AUTEURA-MAINT-006.md
+- tickets/done/AUTEURA-MAINT-006.md
 - src/services/AuteuraVirtualOutputService.ts
 - src/services/__tests__/AuteuraVirtualOutputService.test.ts
 

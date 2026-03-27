@@ -1,7 +1,7 @@
 # AUTEURA-STAB-002 — Make renderer startup and failure state deterministic
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: stabilization
 - Priority: P0
 - Owner: codex
@@ -85,6 +85,11 @@ volta run npx vitest run src/engine/__tests__/GLRenderer.test.ts
 ```
 
 ## Progress Log
+### 2026-03-27 06:50 EDT
+- revalidated the current source after a code/ticket-drift review
+- confirmed `src/engine/GLRenderer.ts` still contains the intended teardown fix: normal disposal does not call `WEBGL_lose_context.loseContext()`
+- confirmed `src/engine/__tests__/GLRenderer.test.ts` still encodes the non-forced-context-loss disposal behavior
+
 ### 2026-03-27 05:15
 - completed targeted validation for the renderer teardown fix
 - results:
@@ -127,7 +132,7 @@ volta run npx vitest run src/engine/__tests__/GLRenderer.test.ts
 ## Changed Files
 - src/engine/GLRenderer.ts
 - src/engine/__tests__/GLRenderer.test.ts
-- tickets/in-progress/AUTEURA-STAB-002.md
+- tickets/done/AUTEURA-STAB-002.md
 
 ## Audit Findings
 - Earlier audit conclusion revised:
