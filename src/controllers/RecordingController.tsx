@@ -74,7 +74,7 @@ export interface RecordingControllerContextValue {
   readonly timelapseIntervalSeconds: number;
   readonly timelapseMaxShots: number | null;
   readonly timelapseShotsCaptured: number;
-  readonly timelapseState: 'idle' | 'paused-hidden' | 'running';
+  readonly timelapseState: TimelapseSessionState;
   applyCapturePreset: (presetId: string) => void;
   captureBurst: () => Promise<void>;
   capturePhoto: () => Promise<void>;
@@ -150,7 +150,7 @@ function createCapturePresetName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').slice(0, 48);
 }
 
-type TimelapseSessionState = 'idle' | 'paused-hidden' | 'running';
+export type TimelapseSessionState = 'idle' | 'paused-hidden' | 'running' | 'stopping';
 
 interface TimelapseWorkerResponse {
   readonly type: 'TICK';
@@ -210,6 +210,9 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
   const recordingStartedAtRef = useRef<number | null>(null);
   const timelapseWorkerRef = useRef<Worker | null>(null);
   const timelapseCaptureInFlightRef = useRef<boolean>(false);
+  const timelapseCapturePromiseRef = useRef<Promise<void> | null>(null);
+  const timelapseStopPromiseRef = useRef<Promise<void> | null>(null);
+  const timelapseStopRequestedRef = useRef<boolean>(false);
   const timelapseStateRef = useRef<TimelapseSessionState>('idle');
   const timelapseIntervalSecondsRef = useRef<number>(5);
   const timelapseMaxShotsRef = useRef<number | null>(null);
@@ -603,22 +606,55 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
     [],
   );
 
+  const finalizeTimelapseStop = useCallback((): void => {
+    timelapseStopRequestedRef.current = false;
+    timelapseStopPromiseRef.current = null;
+    timelapseCapturePromiseRef.current = null;
+    timelapseCaptureInFlightRef.current = false;
+    isTimelapseCapturingRef.current = false;
+    setIsTimelapseCapturing(false);
+    updateTimelapseState('idle');
+    setIsProcessingCapture(false);
+  }, [updateTimelapseState]);
+
   const stopTimelapseSession = useCallback(
-    (nextState: TimelapseSessionState = 'idle'): void => {
+    (): Promise<void> => {
+      if (timelapseStopPromiseRef.current !== null) {
+        return timelapseStopPromiseRef.current;
+      }
+
+      timelapseStopRequestedRef.current = true;
       postTimelapseWorkerMessage({
         type: 'STOP',
       });
-      timelapseCaptureInFlightRef.current = false;
-      isTimelapseCapturingRef.current = false;
-      setIsTimelapseCapturing(false);
-      updateTimelapseState(nextState);
-      setIsProcessingCapture(false);
+
+      const activeTimelapseCapture = timelapseCapturePromiseRef.current;
+
+      if (activeTimelapseCapture === null) {
+        finalizeTimelapseStop();
+        return Promise.resolve();
+      }
+
+      updateTimelapseState('stopping');
+
+      const stopPromise = activeTimelapseCapture
+        .catch((): void => undefined)
+        .then((): void => {
+          finalizeTimelapseStop();
+        });
+
+      timelapseStopPromiseRef.current = stopPromise;
+      return stopPromise;
     },
-    [postTimelapseWorkerMessage, updateTimelapseState],
+    [finalizeTimelapseStop, postTimelapseWorkerMessage, updateTimelapseState],
   );
 
   const captureTimelapseFrame = useCallback(async (): Promise<void> => {
-    if (!isTimelapseCapturingRef.current || timelapseCaptureInFlightRef.current) {
+    if (
+      timelapseStopRequestedRef.current ||
+      !isTimelapseCapturingRef.current ||
+      timelapseCaptureInFlightRef.current
+    ) {
       return;
     }
 
@@ -652,36 +688,49 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
 
     if (canvasElement === null) {
       setError('Timelapse capture paused because the render canvas is unavailable.');
-      stopTimelapseSession();
+      void stopTimelapseSession();
       return;
     }
 
     timelapseCaptureInFlightRef.current = true;
     setIsProcessingCapture(true);
 
-    try {
-      const timelapseItem = await createSnapshotItem(canvasElement, 'timelapse');
-      await persistMediaItems([timelapseItem]);
+    let activeTimelapseCapture: Promise<void> | null = null;
 
-      const nextShotCount = timelapseShotsCapturedRef.current + 1;
-      updateTimelapseShotsCaptured(nextShotCount);
+    activeTimelapseCapture = (async (): Promise<void> => {
+      try {
+        const timelapseItem = await createSnapshotItem(canvasElement, 'timelapse');
+        await persistMediaItems([timelapseItem]);
 
-      const maxShots = timelapseMaxShotsRef.current;
+        const nextShotCount = timelapseShotsCapturedRef.current + 1;
+        updateTimelapseShotsCaptured(nextShotCount);
 
-      if (maxShots !== null && nextShotCount >= maxShots) {
-        stopTimelapseSession();
+        const maxShots = timelapseMaxShotsRef.current;
+
+        if (maxShots !== null && nextShotCount >= maxShots) {
+          void stopTimelapseSession();
+        }
+      } catch (captureError: unknown) {
+        setError(
+          captureError instanceof Error
+            ? captureError.message
+            : 'Timelapse capture failed unexpectedly.',
+        );
+        void stopTimelapseSession();
+      } finally {
+        if (timelapseCapturePromiseRef.current === activeTimelapseCapture) {
+          timelapseCapturePromiseRef.current = null;
+        }
+        timelapseCaptureInFlightRef.current = false;
+
+        if (!timelapseStopRequestedRef.current) {
+          setIsProcessingCapture(false);
+        }
       }
-    } catch (captureError: unknown) {
-      setError(
-        captureError instanceof Error
-          ? captureError.message
-          : 'Timelapse capture failed unexpectedly.',
-      );
-      stopTimelapseSession();
-    } finally {
-      timelapseCaptureInFlightRef.current = false;
-      setIsProcessingCapture(false);
-    }
+    })();
+
+    timelapseCapturePromiseRef.current = activeTimelapseCapture;
+    await activeTimelapseCapture;
   }, [
     canvasRef,
     createSnapshotItem,
@@ -804,13 +853,19 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
       }
 
       isTimelapseCapturingRef.current = true;
+      timelapseStopRequestedRef.current = false;
+      timelapseStopPromiseRef.current = null;
       setIsTimelapseCapturing(true);
       updateTimelapseState('running');
       updateTimelapseShotsCaptured(0);
 
       await captureTimelapseFrame();
 
-      if (!isTimelapseCapturingRef.current) {
+      if (
+        !isTimelapseCapturingRef.current ||
+        timelapseStopRequestedRef.current ||
+        timelapseStateRef.current !== 'running'
+      ) {
         return;
       }
 
@@ -824,9 +879,11 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
           ? captureError.message
           : 'Failed to start timelapse capture.',
       );
-      stopTimelapseSession();
+      void stopTimelapseSession();
     } finally {
-      setIsProcessingCapture(false);
+      if (!timelapseStopRequestedRef.current) {
+        setIsProcessingCapture(false);
+      }
     }
   }, [
     canvasRef,
@@ -1115,7 +1172,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
   ]);
 
   const stopTimelapseCapture = useCallback((): void => {
-    stopTimelapseSession();
+    void stopTimelapseSession();
   }, [stopTimelapseSession]);
 
   useEffect((): void => {
@@ -1149,7 +1206,7 @@ export function RecordingController({ children }: PropsWithChildren): JSX.Elemen
 
   useEffect((): (() => void) => {
     const handleVisibilityChange = (): void => {
-      if (!isTimelapseCapturingRef.current) {
+      if (!isTimelapseCapturingRef.current || timelapseStopRequestedRef.current) {
         return;
       }
 
