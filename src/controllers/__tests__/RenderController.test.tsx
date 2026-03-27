@@ -20,6 +20,7 @@ interface RenderSnapshot {
 }
 
 const mockedState = vi.hoisted(() => ({
+  createRendererError: null as Error | null,
   diagnostics: {
     apiExposed: true,
     backend: 'webgl',
@@ -336,6 +337,10 @@ vi.mock('../../engine/createStudioRenderer', () => ({
     readonly initialize: ReturnType<typeof vi.fn>;
     readonly renderFrame: ReturnType<typeof vi.fn>;
   } => {
+    if (mockedState.createRendererError !== null) {
+      throw mockedState.createRendererError;
+    }
+
     const renderer = {
       clear: vi.fn(),
       dispose: vi.fn(),
@@ -399,6 +404,7 @@ function RenderHarness(
 
 describe('RenderController facade contract', () => {
   beforeEach((): void => {
+    mockedState.createRendererError = null;
     mockedState.diagnostics = createDiagnostics();
     mockedState.initializeError = null;
     mockedState.memoryUsageBytes = 0;
@@ -521,5 +527,36 @@ describe('RenderController facade contract', () => {
       runtimeStatus: 'error',
     });
     expect(mockedState.rendererInstances[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes construction-time renderer failures coherently when createStudioRenderer throws', async () => {
+    mockedState.createRendererError = new Error('Renderer construction failed.');
+    const snapshots: RenderSnapshot[] = [];
+
+    render(
+      <RenderController>
+        <RenderHarness
+          onSnapshot={(snapshot: RenderSnapshot): void => {
+            snapshots.push(snapshot);
+          }}
+        />
+      </RenderController>,
+    );
+
+    await waitFor(() => {
+      expect(snapshots.at(-1)?.runtimeStatus).toBe('error');
+    });
+
+    expect(snapshots.at(-1)).toMatchObject({
+      backend: 'unavailable',
+      diagnosticsMessage: null,
+      diagnosticsReason: null,
+      isContextLost: false,
+      rendererError: 'Renderer construction failed.',
+      runtimeMessage: 'Renderer construction failed.',
+      runtimeReason: 'renderer-unavailable',
+      runtimeStatus: 'error',
+    });
+    expect(mockedState.rendererInstances).toHaveLength(0);
   });
 });

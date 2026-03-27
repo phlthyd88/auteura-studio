@@ -5,7 +5,10 @@ import Typography from '@mui/material/Typography';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCameraController } from '../../controllers/CameraController';
-import { useRenderController } from '../../controllers/RenderController';
+import {
+  useRenderController,
+  type RendererRuntimeReason,
+} from '../../controllers/RenderController';
 import {
   useTimelinePreviewState,
   type TimelinePreviewSource,
@@ -42,7 +45,11 @@ function statusTone(
   };
 }
 
-function formatRendererRuntimeReason(reason: string | null): string {
+function formatRendererRuntimeReason(reason: RendererRuntimeReason | null): string {
+  if (reason === null) {
+    return 'none';
+  }
+
   switch (reason) {
     case 'context-acquired-lost':
       return 'context acquired lost';
@@ -60,9 +67,10 @@ function formatRendererRuntimeReason(reason: string | null): string {
       return 'renderer unavailable';
     case 'webgl-unavailable':
       return 'WebGL unavailable';
-    default:
-      return 'none';
   }
+
+  const exhaustiveReason: never = reason;
+  return exhaustiveReason;
 }
 
 export function Viewfinder(): JSX.Element {

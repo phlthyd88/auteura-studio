@@ -147,7 +147,7 @@ const defaultTimelinePreviewState: TimelinePreviewState = {
 };
 
 type WebglDiagnostics = GLRendererDiagnostics;
-type RendererRuntimeReason =
+export type RendererRuntimeReason =
   | GLRendererFailureReason
   | 'context-lost'
   | 'render-loop-failed'
@@ -797,17 +797,19 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
 
     function initializeRenderer(): boolean {
       destroyRenderer();
-      const nextRenderer = createRenderer(renderCanvasElement);
+      let nextRenderer: GLRenderer | null = null;
 
       try {
+        nextRenderer = createRenderer(renderCanvasElement);
         nextRenderer.initialize();
         rendererRef.current = nextRenderer;
         consecutiveRenderFailureCount = 0;
         syncRendererDiagnostics(nextRenderer.getDiagnostics());
         return true;
       } catch (initializationError: unknown) {
-        const failedDiagnostics = nextRenderer.getDiagnostics();
-        nextRenderer.dispose();
+        const failedDiagnostics =
+          nextRenderer?.getDiagnostics() ?? defaultRendererRuntimeState.diagnostics;
+        nextRenderer?.dispose();
         rendererRef.current = null;
         publishRendererRuntime({
           diagnostics: failedDiagnostics,
