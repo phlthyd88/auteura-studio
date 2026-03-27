@@ -101,10 +101,10 @@ volta run npx vitest run src/engine/__tests__/GLRenderer.test.ts
 - updated `src/engine/__tests__/GLRenderer.test.ts`
   - rewrote the disposal expectation to prove pipeline cleanup happens without forcing browser context loss
   - kept the idempotent-dispose coverage and updated it to assert `loseContext()` is not called
-- no controller or UI code was changed because the bug is in renderer teardown semantics, not in controller runtime publication itself
-
-### 2026-03-27 03:48
-- new evidence invalidated the earlier “already satisfied” conclusion for this ticket
+- [x] typecheck
+- [x] lint
+- [x] unit tests
+- [ ] integration tests not required
 - confirmed code path:
   - `GLRenderer.dispose()` currently calls `activeContext.getExtension('WEBGL_lose_context')?.loseContext?.()`
   - `RenderController` listens for `webglcontextlost` on the canvas and publishes `context-lost`
