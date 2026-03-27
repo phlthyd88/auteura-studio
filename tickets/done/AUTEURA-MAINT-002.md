@@ -1,7 +1,7 @@
 # AUTEURA-MAINT-002 — Address RenderController/Viewfinder review fixes
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: bug
 - Priority: P1
 - Owner: codex
@@ -124,7 +124,7 @@ volta run npx vitest run src/controllers/__tests__/RenderController.test.tsx src
 - confirmed the current controller test harness already mocks `createStudioRenderer`, so a focused construction-failure test is practical without widening scope
 
 ## Changed Files
-- tickets/review/AUTEURA-MAINT-002.md
+- tickets/done/AUTEURA-MAINT-002.md
 - src/controllers/RenderController.tsx
 - src/components/layout/Viewfinder.tsx
 - src/controllers/__tests__/RenderController.test.tsx

@@ -1,7 +1,7 @@
 # AUTEURA-STAB-004 — Expand regression coverage for startup-failure and fallback branches
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: test
 - Priority: P0
 - Owner: codex
@@ -23,9 +23,9 @@ Add or extend tests for null webgl, null experimental-webgl, lost-on-acquire, an
 Do not attempt broad unrelated E2E cleanup.
 
 ## Acceptance Criteria
-- [ ] The failing startup scenario is covered by automation.
-- [ ] Old behavior fails and the fix passes.
-- [ ] Fallback assertions verify runtime text and monitor state.
+- [x] The failing startup scenario is covered by automation.
+- [x] Old behavior fails and the fix passes.
+- [x] Fallback assertions verify runtime text and monitor state.
 
 ## Constraints
 Maintain current public behavior unless the ticket explicitly changes it.
@@ -133,7 +133,7 @@ REAL_NODE_BIN=$(dirname "$(volta which npm)") && PATH="$REAL_NODE_BIN:$PATH" vol
 - ran the targeted Vitest command and it passed cleanly
 
 ## Changed Files
-- tickets/review/AUTEURA-STAB-004.md
+- tickets/done/AUTEURA-STAB-004.md
 - src/engine/__tests__/GLRenderer.test.ts
 
 ## Validation Results
