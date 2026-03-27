@@ -40,8 +40,8 @@ function formatRecordingTime(totalSeconds: number): string {
   return `${hours}:${minutes}:${seconds}`;
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled timelapse state: ${value}`);
+function assertNever(_value: never): never {
+  throw new Error('Unhandled timelapse state.');
 }
 
 function getTimelapseStatusText(state: TimelapseSessionState): string {
