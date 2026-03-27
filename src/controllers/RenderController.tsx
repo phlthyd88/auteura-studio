@@ -12,7 +12,7 @@ import {
 import { useAudioContext } from '../context/AudioContext';
 import { useCameraController } from './CameraController';
 import { GLRenderer } from '../engine/GLRenderer';
-import type { GLRendererDiagnostics } from '../engine/GLRenderer';
+import type { GLRendererDiagnostics, GLRendererFailureReason } from '../engine/GLRenderer';
 import {
   CompositionRenderAdapter,
   type CompositionRenderState,
@@ -104,6 +104,7 @@ interface RenderControllerContextValue {
   readonly pictureInPictureConfig: PictureInPictureConfig;
   readonly previewSourceMode: TimelinePreviewMode;
   readonly previewStatus: TimelinePreviewState['status'];
+  readonly rendererRuntime: RendererRuntimeState;
   readonly rendererError: string | null;
   readonly webglDiagnostics: WebglDiagnostics;
   readonly sceneAnalysis: SceneAnalysisSnapshot;
@@ -146,17 +147,90 @@ const defaultTimelinePreviewState: TimelinePreviewState = {
 };
 
 type WebglDiagnostics = GLRendererDiagnostics;
+type RendererRuntimeReason =
+  | GLRendererFailureReason
+  | 'context-lost'
+  | 'render-loop-failed'
+  | 'renderer-unavailable';
+
+type RendererRuntimeStatus = 'context-lost' | 'error' | 'fallback' | 'idle' | 'ready';
+
+interface RendererRuntimeState {
+  readonly diagnostics: WebglDiagnostics;
+  readonly isContextLost: boolean;
+  readonly message: string | null;
+  readonly reason: RendererRuntimeReason | null;
+  readonly status: RendererRuntimeStatus;
+}
 
 const defaultWebglDiagnostics: WebglDiagnostics = {
   apiExposed: typeof WebGLRenderingContext !== 'undefined',
   backend: 'unavailable',
   experimentalContextAvailable: false,
+  failureReason: null,
   message: null,
   webglContextAvailable: false,
 };
 
+const defaultRendererRuntimeState: RendererRuntimeState = {
+  diagnostics: defaultWebglDiagnostics,
+  isContextLost: false,
+  message: null,
+  reason: null,
+  status: 'idle',
+};
+
 function createRenderer(canvas: HTMLCanvasElement): GLRenderer {
   return createStudioRenderer(canvas);
+}
+
+function areWebglDiagnosticsEqual(
+  left: WebglDiagnostics,
+  right: WebglDiagnostics,
+): boolean {
+  return (
+    left.backend === right.backend &&
+    left.message === right.message &&
+    left.failureReason === right.failureReason &&
+    left.apiExposed === right.apiExposed &&
+    left.webglContextAvailable === right.webglContextAvailable &&
+    left.experimentalContextAvailable === right.experimentalContextAvailable
+  );
+}
+
+function deriveRendererRuntimeStateFromDiagnostics(
+  nextDiagnostics: WebglDiagnostics,
+): RendererRuntimeState {
+  if (nextDiagnostics.backend === 'webgl') {
+    return {
+      diagnostics: nextDiagnostics,
+      isContextLost: false,
+      message: null,
+      reason: null,
+      status: 'ready',
+    };
+  }
+
+  return {
+    diagnostics: nextDiagnostics,
+    isContextLost: false,
+    message: nextDiagnostics.message,
+    reason: nextDiagnostics.failureReason,
+    status: nextDiagnostics.backend === 'canvas-2d' ? 'fallback' : 'error',
+  };
+}
+
+function areRendererRuntimeStatesEqual(
+  left: RendererRuntimeState,
+  right: RendererRuntimeState,
+): boolean {
+  return (
+    left.status === right.status &&
+    left.reason === right.reason &&
+    left.message === right.message &&
+    left.isContextLost === right.isContextLost &&
+    areWebglDiagnosticsEqual(left.diagnostics, right.diagnostics)
+  );
 }
 
 export function RenderController({ children }: PropsWithChildren): JSX.Element {
@@ -220,11 +294,10 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
   const [lutImportError, setLutImportError] = useState<string | null>(null);
   const [lutLoadError, setLutLoadError] = useState<string | null>(null);
   const [lookPresets, setLookPresets] = useState<readonly LookPresetRecord[]>([]);
-  const [rendererError, setRendererError] = useState<string | null>(null);
-  const [webglDiagnostics, setWebglDiagnostics] = useState(defaultWebglDiagnostics);
+  const [rendererRuntime, setRendererRuntime] =
+    useState<RendererRuntimeState>(defaultRendererRuntimeState);
   const [sceneAnalysis, setSceneAnalysis] =
     useState<SceneAnalysisSnapshot>(emptySceneAnalysis);
-  const [isContextLost, setIsContextLost] = useState<boolean>(false);
   const [transform, setTransformState] = useState<TransformSettings>(defaultTransformSettings);
   const [virtualOutputStatus, setVirtualOutputStatus] =
     useState<VirtualOutputStatusSnapshot>(defaultVirtualOutputSnapshot);
@@ -235,6 +308,9 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
     () => resolveVirtualOutputDeliveryPolicy(capabilities, virtualOutputStatus.clientCount),
     [capabilities, virtualOutputStatus.clientCount],
   );
+  const rendererError = rendererRuntime.message;
+  const webglDiagnostics = rendererRuntime.diagnostics;
+  const isContextLost = rendererRuntime.isContextLost;
 
   useEffect(() => {
     let disposed = false;
@@ -707,38 +783,44 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       rendererRef.current = null;
     }
 
-    function syncRendererDiagnostics(nextDiagnostics: WebglDiagnostics): void {
-      setRendererError(
-        nextDiagnostics.backend === 'webgl' ? null : nextDiagnostics.message,
-      );
-      setWebglDiagnostics((currentDiagnostics: WebglDiagnostics): WebglDiagnostics =>
-        currentDiagnostics.backend === nextDiagnostics.backend &&
-        currentDiagnostics.message === nextDiagnostics.message &&
-        currentDiagnostics.apiExposed === nextDiagnostics.apiExposed &&
-        currentDiagnostics.webglContextAvailable === nextDiagnostics.webglContextAvailable &&
-        currentDiagnostics.experimentalContextAvailable === nextDiagnostics.experimentalContextAvailable
-          ? currentDiagnostics
-          : nextDiagnostics,
+    function publishRendererRuntime(nextRuntime: RendererRuntimeState): void {
+      setRendererRuntime((currentRuntime: RendererRuntimeState): RendererRuntimeState =>
+        areRendererRuntimeStatesEqual(currentRuntime, nextRuntime)
+          ? currentRuntime
+          : nextRuntime,
       );
     }
 
+    function syncRendererDiagnostics(nextDiagnostics: WebglDiagnostics): void {
+      publishRendererRuntime(deriveRendererRuntimeStateFromDiagnostics(nextDiagnostics));
+    }
+
     function initializeRenderer(): boolean {
+      destroyRenderer();
+      const nextRenderer = createRenderer(renderCanvasElement);
+
       try {
-        destroyRenderer();
-        const nextRenderer = createRenderer(renderCanvasElement);
         nextRenderer.initialize();
         rendererRef.current = nextRenderer;
         consecutiveRenderFailureCount = 0;
         syncRendererDiagnostics(nextRenderer.getDiagnostics());
         return true;
       } catch (initializationError: unknown) {
-        destroyRenderer();
-        setWebglDiagnostics(defaultWebglDiagnostics);
-        setRendererError(
-          initializationError instanceof Error
-            ? initializationError.message
-            : 'Failed to initialize the WebGL renderer.',
-        );
+        const failedDiagnostics = nextRenderer.getDiagnostics();
+        nextRenderer.dispose();
+        rendererRef.current = null;
+        publishRendererRuntime({
+          diagnostics: failedDiagnostics,
+          isContextLost: false,
+          message:
+            initializationError instanceof Error
+              ? initializationError.message
+              : 'Failed to initialize the WebGL renderer.',
+          reason:
+            failedDiagnostics.failureReason ??
+            (failedDiagnostics.backend === 'unavailable' ? 'renderer-unavailable' : null),
+          status: failedDiagnostics.backend === 'canvas-2d' ? 'fallback' : 'error',
+        });
         return false;
       }
     }
@@ -813,12 +895,16 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
         }
 
         cancelRenderLoop();
-        syncRendererDiagnostics(rendererRef.current?.getDiagnostics() ?? defaultWebglDiagnostics);
-        setRendererError(
-          renderError instanceof Error
-            ? renderError.message
-            : 'The WebGL render pipeline failed during a frame draw.',
-        );
+        publishRendererRuntime({
+          diagnostics: rendererRef.current?.getDiagnostics() ?? defaultWebglDiagnostics,
+          isContextLost: false,
+          message:
+            renderError instanceof Error
+              ? renderError.message
+              : 'The WebGL render pipeline failed during a frame draw.',
+          reason: 'render-loop-failed',
+          status: 'error',
+        });
       }
     }
 
@@ -830,19 +916,24 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
     function handleContextLost(event: Event): void {
       event.preventDefault();
       contextLostRef.current = true;
-      setIsContextLost(true);
-      setWebglDiagnostics((currentDiagnostics): WebglDiagnostics => ({
-        ...currentDiagnostics,
-        backend: 'unavailable',
+      const currentDiagnostics = rendererRef.current?.getDiagnostics() ?? defaultWebglDiagnostics;
+      publishRendererRuntime({
+        diagnostics: {
+          ...currentDiagnostics,
+          backend: 'unavailable',
+          message: 'WebGL context lost. Waiting for restoration.',
+        },
+        isContextLost: true,
         message: 'WebGL context lost. Waiting for restoration.',
-      }));
+        reason: 'context-lost',
+        status: 'context-lost',
+      });
       cancelRenderLoop();
       destroyRenderer();
     }
 
     function handleContextRestored(): void {
       contextLostRef.current = false;
-      setIsContextLost(false);
 
       if (initializeRenderer()) {
         startRenderLoop();
@@ -892,6 +983,7 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       previewSourceMode,
       previewStatus,
       resetRenderSettings,
+      rendererRuntime,
       rendererError,
       webglDiagnostics,
       saveCurrentLookPreset,
@@ -934,6 +1026,7 @@ export function RenderController({ children }: PropsWithChildren): JSX.Element {
       previewSourceMode,
       previewStatus,
       resetRenderSettings,
+      rendererRuntime,
       rendererError,
       webglDiagnostics,
       saveCurrentLookPreset,

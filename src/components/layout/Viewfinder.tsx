@@ -42,6 +42,29 @@ function statusTone(
   };
 }
 
+function formatRendererRuntimeReason(reason: string | null): string {
+  switch (reason) {
+    case 'context-acquired-lost':
+      return 'context acquired lost';
+    case 'context-lost':
+      return 'context lost';
+    case 'gpu-limits-unreadable':
+      return 'GPU limits unreadable';
+    case 'initialization-failed':
+      return 'initialization failed';
+    case 'render-failed':
+      return 'render failed';
+    case 'render-loop-failed':
+      return 'render loop failed';
+    case 'renderer-unavailable':
+      return 'renderer unavailable';
+    case 'webgl-unavailable':
+      return 'WebGL unavailable';
+    default:
+      return 'none';
+  }
+}
+
 export function Viewfinder(): JSX.Element {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -53,6 +76,7 @@ export function Viewfinder(): JSX.Element {
     overlayConfig,
     previewSourceMode,
     previewStatus,
+    rendererRuntime,
     rendererError,
     webglDiagnostics,
   } = useRenderController();
@@ -130,8 +154,21 @@ export function Viewfinder(): JSX.Element {
       return `Rendering timeline stack (${activeSourceCount} source${activeSourceCount === 1 ? '' : 's'})`;
     }
 
-    return stream === null ? 'Waiting for input feed' : 'Rendering camera texture to WebGL';
-  }, [activeSources, previewSourceMode, stream]);
+    if (stream === null) {
+      return 'Waiting for input feed';
+    }
+
+    switch (rendererRuntime.status) {
+      case 'context-lost':
+        return 'WebGL context lost, awaiting restoration';
+      case 'fallback':
+        return 'Rendering camera texture to Canvas 2D fallback';
+      case 'error':
+        return 'Renderer unavailable';
+      default:
+        return 'Rendering camera texture to WebGL';
+    }
+  }, [activeSources, previewSourceMode, rendererRuntime.status, stream]);
 
   useEffect((): void => {
     const activeSourceIds = new Set(Object.keys(activeSources));
@@ -343,7 +380,7 @@ export function Viewfinder(): JSX.Element {
       {cameraError !== null ? <Alert severity="error">{cameraError}</Alert> : null}
       {rendererError !== null ? (
         <Stack spacing={1}>
-          <Alert severity={webglDiagnostics.backend === 'canvas-2d' ? 'info' : 'warning'}>
+          <Alert severity={rendererRuntime.status === 'fallback' ? 'info' : 'warning'}>
             {rendererError}
           </Alert>
           <Box
@@ -362,6 +399,12 @@ export function Viewfinder(): JSX.Element {
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               active backend: {webglDiagnostics.backend}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              runtime status: {rendererRuntime.status}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              failure reason: {formatRendererRuntimeReason(rendererRuntime.reason)}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               API exposed: {webglDiagnostics.apiExposed ? 'yes' : 'no'}

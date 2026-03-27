@@ -220,7 +220,58 @@ describe('GLRenderer', (): void => {
 
     expect(consoleWarn).toHaveBeenCalled();
     expect(renderer.getDiagnostics().backend).toBe('canvas-2d');
+    expect(renderer.getDiagnostics().failureReason).toBe('initialization-failed');
     expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+
+    consoleWarn.mockRestore();
+  });
+
+  it('falls back to 2d preview when the acquired WebGL context is already lost', (): void => {
+    globalThis.window = {
+      devicePixelRatio: 1,
+    } as Window & typeof globalThis;
+
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { canvas, context, context2d, pipeline } = createHarness();
+    context.isContextLost.mockReturnValue(true);
+    const renderer = new GLRenderer(canvas, pipeline as never);
+
+    renderer.initialize();
+    renderer.renderFrame(canvas, createRenderFrameState(1));
+
+    expect(pipeline.initialize).not.toHaveBeenCalled();
+    expect(renderer.getDiagnostics()).toMatchObject({
+      backend: 'canvas-2d',
+      failureReason: 'context-acquired-lost',
+      message: 'WebGL context was acquired in a lost state.',
+    });
+    expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+    expect(consoleWarn).toHaveBeenCalled();
+
+    consoleWarn.mockRestore();
+  });
+
+  it('falls back to 2d preview when WebGL GPU limits are unreadable', (): void => {
+    globalThis.window = {
+      devicePixelRatio: 1,
+    } as Window & typeof globalThis;
+
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { canvas, context, context2d, pipeline } = createHarness();
+    context.getParameter.mockReturnValue(null);
+    const renderer = new GLRenderer(canvas, pipeline as never);
+
+    renderer.initialize();
+    renderer.renderFrame(canvas, createRenderFrameState(1));
+
+    expect(pipeline.initialize).not.toHaveBeenCalled();
+    expect(renderer.getDiagnostics()).toMatchObject({
+      backend: 'canvas-2d',
+      failureReason: 'gpu-limits-unreadable',
+      message: 'WebGL context was acquired but GPU render-target limits were unreadable.',
+    });
+    expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+    expect(consoleWarn).toHaveBeenCalled();
 
     consoleWarn.mockRestore();
   });
@@ -243,6 +294,7 @@ describe('GLRenderer', (): void => {
 
     expect(pipeline.dispose).toHaveBeenCalledWith(context);
     expect(renderer.getDiagnostics().backend).toBe('canvas-2d');
+    expect(renderer.getDiagnostics().failureReason).toBe('render-failed');
     expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
     expect(consoleWarn).toHaveBeenCalled();
 

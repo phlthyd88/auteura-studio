@@ -8,10 +8,18 @@ interface GLRendererContextOptions {
   readonly preserveDrawingBuffer: boolean;
 }
 
+export type GLRendererFailureReason =
+  | 'context-acquired-lost'
+  | 'gpu-limits-unreadable'
+  | 'initialization-failed'
+  | 'render-failed'
+  | 'webgl-unavailable';
+
 export interface GLRendererDiagnostics {
   readonly apiExposed: boolean;
   readonly backend: 'canvas-2d' | 'unavailable' | 'webgl';
   readonly experimentalContextAvailable: boolean;
+  readonly failureReason: GLRendererFailureReason | null;
   readonly message: string | null;
   readonly webglContextAvailable: boolean;
 }
@@ -95,7 +103,13 @@ export class GLRenderer {
           }
           this.context = null;
 
-          if (this.initializeCanvasFallback('WebGL initialization failed. Falling back to 2D preview.', initializationError)) {
+          if (
+            this.initializeCanvasFallback(
+              'WebGL initialization failed. Falling back to 2D preview.',
+              'initialization-failed',
+              initializationError,
+            )
+          ) {
             return;
           }
 
@@ -103,16 +117,26 @@ export class GLRenderer {
         }
       }
 
-      if (this.initializeCanvasFallback(validationError)) {
+      if (
+        this.initializeCanvasFallback(
+          validationError,
+          typeof nextContext.isContextLost === 'function' && nextContext.isContextLost()
+            ? 'context-acquired-lost'
+            : 'gpu-limits-unreadable',
+        )
+      ) {
         return;
       }
 
       throw new Error(validationError);
     }
 
-    if (this.initializeCanvasFallback(
-      'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
-    )) {
+    if (
+      this.initializeCanvasFallback(
+        'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
+        'webgl-unavailable',
+      )
+    ) {
       return;
     }
 
@@ -166,6 +190,7 @@ export class GLRenderer {
       if (
         this.initializeCanvasFallback(
           'WebGL preview failed during rendering. Falling back to 2D preview.',
+          'render-failed',
           renderError,
         )
       ) {
@@ -200,24 +225,34 @@ export class GLRenderer {
     }
   }
 
-  private initializeCanvasFallback(message: string, error?: unknown): boolean {
+  private initializeCanvasFallback(
+    message: string,
+    failureReason: GLRendererFailureReason,
+    error?: unknown,
+  ): boolean {
     const nextFallbackContext = this.canvas.getContext('2d');
 
     if (nextFallbackContext === null) {
       this.diagnostics = {
         ...this.diagnostics,
         backend: 'unavailable',
+        failureReason,
         message,
       };
       return false;
     }
 
-    console.warn(message, error);
+    if (error === undefined) {
+      console.warn(message);
+    } else {
+      console.warn(message, error);
+    }
     this.context = null;
     this.fallbackContext = nextFallbackContext;
     this.diagnostics = {
       ...this.diagnostics,
       backend: 'canvas-2d',
+      failureReason,
       message,
     };
     this.resizeToDisplaySize();
@@ -268,6 +303,7 @@ const defaultDiagnostics: GLRendererDiagnostics = {
   apiExposed: typeof WebGLRenderingContext !== 'undefined',
   backend: 'unavailable',
   experimentalContextAvailable: false,
+  failureReason: null,
   message: null,
   webglContextAvailable: false,
 };
