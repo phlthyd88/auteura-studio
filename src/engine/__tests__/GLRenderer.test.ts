@@ -163,7 +163,7 @@ describe('GLRenderer', (): void => {
     expect(pipeline.resize).toHaveBeenCalledWith(context, 640, 360, 0.65);
   });
 
-  it('explicitly loses the WebGL context on final disposal', (): void => {
+  it('disposes pipeline resources without forcing browser context loss', (): void => {
     globalThis.window = {
       devicePixelRatio: 1,
     } as Window & typeof globalThis;
@@ -179,7 +179,7 @@ describe('GLRenderer', (): void => {
     renderer.dispose();
 
     expect(pipeline.dispose).toHaveBeenCalledWith(context);
-    expect(loseContext).toHaveBeenCalledTimes(1);
+    expect(loseContext).not.toHaveBeenCalled();
   });
 
   it('keeps disposal idempotent across repeated shutdown calls', (): void => {
@@ -200,7 +200,7 @@ describe('GLRenderer', (): void => {
 
     expect(pipeline.dispose).toHaveBeenCalledTimes(1);
     expect(pipeline.dispose).toHaveBeenCalledWith(context);
-    expect(loseContext).toHaveBeenCalledTimes(1);
+    expect(loseContext).not.toHaveBeenCalled();
   });
 
   it('falls back to 2d preview when WebGL initialization fails', (): void => {

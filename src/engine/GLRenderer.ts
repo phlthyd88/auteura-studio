@@ -65,7 +65,8 @@ export class GLRenderer {
     if (this.context !== null) {
       const activeContext = this.context;
       this.pipeline.dispose(activeContext);
-      activeContext.getExtension('WEBGL_lose_context')?.loseContext?.();
+      // Normal teardown should release renderer-owned GPU resources without
+      // synthesizing a later browser context-loss event on the same canvas.
       this.context = null;
     }
 
