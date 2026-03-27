@@ -1,7 +1,7 @@
 # AUTEURA-STAB-006 — Audit remaining renderer stabilization backlog against the current baseline
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: stabilization
 - Priority: P1
 - Owner: codex
@@ -121,7 +121,7 @@ REAL_NODE_BIN=$(dirname "$(volta which npm)") && PATH="$REAL_NODE_BIN:$PATH" vol
 - no active reconciliation has started yet; next step is to classify `STAB-002` through `STAB-005` from code and validation evidence
 
 ## Changed Files
-- tickets/review/AUTEURA-STAB-006.md
+- tickets/done/AUTEURA-STAB-006.md
 
 ## Audit Findings
 - `AUTEURA-STAB-002` — already satisfied
@@ -192,8 +192,13 @@ If blocked, record:
 - what remains unverified
 
 ## Residual Risks
-- The stabilization backlog itself still contains stale sibling tickets (`AUTEURA-STAB-002` through `AUTEURA-STAB-005`) that now need explicit closure or supersession handling to match this audit result.
 - The original HMR-specific framing that `AUTEURA-STAB-006` started with is no longer the correct next renderer question; if HMR-specific lifecycle issues are investigated later, they should be opened as a fresh evidence-driven ticket rather than inferred from this audit.
+- This ticket now serves as the original baseline audit record. `AUTEURA-STAB-005` later reconciled the documentation/history drift that emerged after `AUTEURA-STAB-002` revised the teardown contract.
+
+## Reconciliation
+- The earlier `AUTEURA-STAB-005` superseded classification in this ticket was based on the then-current assumption that the renderer hardening record and the live teardown contract were still aligned.
+- `AUTEURA-STAB-002` later proved that normal disposal must not force browser context loss on preserved canvases, which means the historical record itself drifted even though the runtime bug is now fixed.
+- `AUTEURA-STAB-005` is therefore no longer just duplicate audit work; it now owns the documentation/history reconciliation needed to align the release board and hardening chain with the post-`STAB-002` teardown contract.
 
 ## Final Summary
-Reconciled the remaining renderer stabilization backlog against the current baseline instead of scheduling duplicate work from stale ticket titles. The audit found no remaining real stabilization gap across `AUTEURA-STAB-002` through `AUTEURA-STAB-005`: deterministic fallback/runtime truth is already implemented, backend/failure UI coherence is already implemented, startup/fallback regression coverage is already present, and `AUTEURA-STAB-005` is superseded by this audit itself. Verified with targeted typecheck, renderer/controller unit coverage, the focused browser startup-failure matrix, and the critical WebGL-unavailable fallback test.
+Reconciled the remaining renderer stabilization backlog against the baseline that existed at the time of the audit instead of scheduling duplicate work from stale ticket titles. The audit correctly found no remaining code-level stabilization gap across `AUTEURA-STAB-002` through `AUTEURA-STAB-005` in runtime truth, UI coherence, and startup/fallback coverage. That baseline record remains useful, but `AUTEURA-STAB-005` later reconciled the historical/documentation drift introduced when `AUTEURA-STAB-002` revised the teardown contract. Verified with targeted typecheck, renderer/controller unit coverage, the focused browser startup-failure matrix, and the critical WebGL-unavailable fallback test.

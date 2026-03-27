@@ -226,6 +226,47 @@ describe('GLRenderer', (): void => {
     consoleWarn.mockRestore();
   });
 
+  it('falls back to 2d preview when WebGL is unavailable', (): void => {
+    globalThis.window = {
+      devicePixelRatio: 1,
+    } as Window & typeof globalThis;
+
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { canvas, context2d, getContext, pipeline } = createHarness();
+    getContext.mockImplementation((type: string) => (type === '2d' ? context2d : null));
+    const renderer = new GLRenderer(canvas, pipeline as never);
+
+    expect(() => {
+      renderer.initialize();
+    }).not.toThrow();
+
+    expect(getContext).toHaveBeenCalledWith('webgl', {
+      alpha: false,
+      antialias: true,
+      preserveDrawingBuffer: false,
+    });
+    expect(getContext).toHaveBeenCalledWith('experimental-webgl', {
+      alpha: false,
+      antialias: true,
+      preserveDrawingBuffer: false,
+    });
+    expect(pipeline.initialize).not.toHaveBeenCalled();
+    expect(renderer.getDiagnostics()).toMatchObject({
+      backend: 'canvas-2d',
+      failureReason: 'webgl-unavailable',
+      message:
+        'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
+    });
+    expect(consoleWarn).toHaveBeenCalledWith(
+      'WebGL is unavailable in this browser or is currently blocked by GPU/driver settings.',
+    );
+
+    renderer.renderFrame(canvas, createRenderFrameState(1));
+    expect(context2d.drawImage).toHaveBeenCalledWith(canvas, 0, 0, 640, 360);
+
+    consoleWarn.mockRestore();
+  });
+
   it('falls back to 2d preview when the acquired WebGL context is already lost', (): void => {
     globalThis.window = {
       devicePixelRatio: 1,
