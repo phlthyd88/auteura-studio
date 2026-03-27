@@ -35,6 +35,13 @@ We welcome contributions to Auteura! Whether it's fixing bugs, adding features, 
 - Track reliability and release work through the repo ticket system in [docs/tracking/README.md](docs/tracking/README.md).
 - Add or update the corresponding ticket in [docs/tracking/release-stability-board.md](docs/tracking/release-stability-board.md) before starting high-risk remediation work.
 
+## Refactor PR Requirements
+
+- Controller and shell extractions must preserve the public contracts documented in [docs/architecture/controller-facades.md](docs/architecture/controller-facades.md) unless an approved ticket explicitly changes them.
+- Refactor PRs must list the protected flows they touch using [docs/tracking/refactor-guardrails.md](docs/tracking/refactor-guardrails.md).
+- If a refactor changes controller behavior, add or update characterization coverage before relying on E2E alone.
+- Keep runtime state single-sourced; do not introduce loosely coupled booleans or duplicated status fields that can drift.
+
 ## Reporting Issues
 
 If you find a bug or have a feature request, please [open an issue](https://github.com/phlthyd88/auteura-studio/issues). Provide as much detail as possible, including steps to reproduce for bugs.

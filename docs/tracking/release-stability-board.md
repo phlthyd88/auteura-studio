@@ -30,6 +30,8 @@ This board tracks the remaining reliability and release-hardening work after the
 | `AUTEURA-115` | `done` | `medium` | Stop project listing from materializing full records | `unassigned` | none | `typecheck` + targeted project-storage vitest coverage |
 | `AUTEURA-116` | `done` | `medium` | Persist and resurface update-ready state | `unassigned` | none | `typecheck` + targeted PWA prompt vitest coverage |
 | `AUTEURA-117` | `done` | `high` | Explicitly release WebGL contexts on final disposal | `unassigned` | none | `typecheck` + targeted renderer vitest coverage |
+| `AUTEURA-118` | `done` | `medium` | Establish controller refactor guardrails before extraction | `unassigned` | none | `typecheck` + lint + unit + full Playwright |
+| `AUTEURA-119` | `identified` | `high` | Investigate intermittent hidden-tab timelapse shot-count drift | `unassigned` | none | intermittent critical-path Playwright failure observed once; latest rerun passed |
 
 ## Completed Stabilization Baseline
 

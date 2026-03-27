@@ -11,6 +11,7 @@ Use it when:
 ## Structure
 
 - [release-stability-board.md](release-stability-board.md): master register and release gate board
+- [refactor-guardrails.md](refactor-guardrails.md): protected flows, subsystem ownership, and refactor review checklist
 - [ticket-template.md](ticket-template.md): canonical ticket format
 - `tickets/`: one file per active or historically important ticket
 
@@ -63,3 +64,5 @@ Only tickets marked `release_blocker` can block an RC or production tag by defau
 3. Reference the ticket ID in commits and PRs.
 4. Move the ticket to `validation` only when the code change is complete.
 5. Move the ticket to `done` only after evidence is recorded.
+
+Controller or shell extraction work must also update [refactor-guardrails.md](refactor-guardrails.md) when protected-flow ownership or review expectations change.
