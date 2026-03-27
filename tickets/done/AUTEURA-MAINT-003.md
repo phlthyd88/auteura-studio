@@ -1,7 +1,7 @@
 # AUTEURA-MAINT-003 — Investigate hidden-tab timelapse E2E shot-count behavior
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: bug
 - Priority: P1
 - Owner: codex

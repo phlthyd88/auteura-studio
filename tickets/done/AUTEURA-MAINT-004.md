@@ -1,7 +1,7 @@
 # AUTEURA-MAINT-004 — Fix RecorderPanel assertNever lint failure
 
 ## Metadata
-- Status: READY_FOR_REVIEW
+- Status: DONE
 - Type: bug
 - Priority: P1
 - Owner: codex
