@@ -47,7 +47,7 @@ This board tracks the remaining reliability and release-hardening work after the
 | `AUTEURA-110` | `done` | `high` | Stop strict media access from hydrating full large assets | preview/export/download use playback handles and sequential chunk reads |
 | `AUTEURA-111` | `done` | `high` | Recover renderer after frame exceptions | runtime render failures fall back or reinitialize instead of killing preview |
 | `AUTEURA-112` | `done` | `high` | Make browser-camera heartbeat resilient to timer throttling | liveness is deadline-based and suspended across hidden-tab drift |
-| `AUTEURA-117` | `done` | `high` | Explicitly release WebGL contexts on final disposal | final renderer teardown now uses `WEBGL_lose_context` when supported |
+| `AUTEURA-117` | `done` | `high` | Explicitly release WebGL contexts on final disposal | original hardening added explicit context loss on final disposal; `AUTEURA-STAB-002` later corrected the steady-state teardown contract so normal disposal does not poison preserved-canvas remounts |
 | `AUTEURA-113` | `done` | `medium` | Guard async camera device refresh after unmount | stale `enumerateDevices()` completions are ignored after unmount/supersession |
 | `AUTEURA-114` | `done` | `medium` | Represent unavailable linked media truthfully | unavailable linked items now carry explicit runtime availability status |
 | `AUTEURA-115` | `done` | `medium` | Stop project listing from materializing full records | list/latest now query metadata store and backfill legacy records |
@@ -55,6 +55,11 @@ This board tracks the remaining reliability and release-hardening work after the
 | `AUTEURA-107` | `done` | `high` | Add pressure-oriented validation | unit and browser-level pressure checks |
 
 ## Release Exit Criteria
+
+### Historical Correction
+
+- `AUTEURA-117` remains part of the renderer hardening history, but its original steady-state teardown assumption was revised by `AUTEURA-STAB-002`.
+- Current renderer teardown guidance: release renderer-owned GPU resources during normal disposal, but do not force browser context loss on the preserved canvas used by a subsequent lifecycle.
 
 Do not tag a release candidate until:
 
