@@ -536,6 +536,7 @@ function TelemetryRail(): JSX.Element {
     canvasRef,
     previewSourceMode,
     previewStatus,
+    rendererRuntime,
     sceneAnalysis,
     virtualOutputStatus,
     webglDiagnostics,
@@ -571,6 +572,14 @@ function TelemetryRail(): JSX.Element {
     sceneAnalysis.stats?.subjectCoverage === null || sceneAnalysis.stats === null
       ? 'Not sampled'
       : `${Math.round(sceneAnalysis.stats.subjectCoverage * 100)}%`;
+  const rendererLabel =
+    rendererRuntime.status === 'context-lost'
+      ? 'WebGL lost'
+      : webglDiagnostics.backend === 'webgl'
+        ? 'WebGL'
+        : webglDiagnostics.backend === 'canvas-2d'
+          ? 'Canvas 2D'
+          : 'Unavailable';
 
   return (
     <Stack spacing={1.4}>
@@ -631,16 +640,7 @@ function TelemetryRail(): JSX.Element {
         >
           <TelemetryMetric label="Profile" value={effectiveMode} />
           <TelemetryMetric label="Preview fps" value={diagnostics.averageFps.toFixed(1)} />
-          <TelemetryMetric
-            label="Renderer"
-            value={
-              webglDiagnostics.backend === 'webgl'
-                ? 'WebGL'
-                : webglDiagnostics.backend === 'canvas-2d'
-                  ? 'Canvas 2D'
-                  : 'Unavailable'
-            }
-          />
+          <TelemetryMetric label="Renderer" value={rendererLabel} />
           <TelemetryMetric
             label="Scope path"
             value={

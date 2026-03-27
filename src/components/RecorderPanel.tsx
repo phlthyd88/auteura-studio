@@ -18,9 +18,13 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import BookmarkAddRoundedIcon from '@mui/icons-material/BookmarkAddRounded';
 import { alpha } from '@mui/material/styles';
 import type { SelectChangeEvent } from '@mui/material/Select';
+import type { ButtonProps } from '@mui/material/Button';
 import { useMemo, useState } from 'react';
 import { StudioDeckSection } from './StudioDeckSection';
-import { useRecordingController } from '../controllers/RecordingController';
+import {
+  type TimelapseSessionState,
+  useRecordingController,
+} from '../controllers/RecordingController';
 
 function formatRecordingTime(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600)
@@ -34,6 +38,86 @@ function formatRecordingTime(totalSeconds: number): string {
     .padStart(2, '0');
 
   return `${hours}:${minutes}:${seconds}`;
+}
+
+function assertNever(_value: never): never {
+  throw new Error('Unhandled timelapse state.');
+}
+
+function getTimelapseStatusText(state: TimelapseSessionState): string {
+  switch (state) {
+    case 'idle':
+      return 'Idle';
+    case 'paused-hidden':
+      return 'Paused while tab is hidden';
+    case 'running':
+      return 'Capturing interval stills';
+    case 'stopping':
+      return 'Finishing active timelapse frame';
+    default:
+      return assertNever(state);
+  }
+}
+
+function getTimelapseAlertSeverity(
+  state: TimelapseSessionState,
+): 'info' | 'warning' {
+  switch (state) {
+    case 'idle':
+    case 'running':
+    case 'stopping':
+      return 'info';
+    case 'paused-hidden':
+      return 'warning';
+    default:
+      return assertNever(state);
+  }
+}
+
+function getTimelapseAlertText(state: TimelapseSessionState): string {
+  switch (state) {
+    case 'idle':
+    case 'running':
+    case 'paused-hidden':
+      return 'Timelapse capture pauses when this tab is hidden or minimized. When you return, the session resumes from the current time and does not backfill missed frames.';
+    case 'stopping':
+      return 'Stopping timelapse after the active capture settles. No additional interval frames will be scheduled.';
+    default:
+      return assertNever(state);
+  }
+}
+
+function getTimelapseButtonColor(
+  state: TimelapseSessionState,
+): NonNullable<ButtonProps['color']> {
+  switch (state) {
+    case 'idle':
+    case 'running':
+      return 'inherit';
+    case 'paused-hidden':
+      return 'warning';
+    case 'stopping':
+      return 'info';
+    default:
+      return assertNever(state);
+  }
+}
+
+function getTimelapseButtonLabel(
+  state: TimelapseSessionState,
+  shotsCaptured: number,
+): string {
+  switch (state) {
+    case 'idle':
+      return 'Start Timelapse';
+    case 'paused-hidden':
+    case 'running':
+      return `Stop Timelapse (${shotsCaptured})`;
+    case 'stopping':
+      return `Stopping Timelapse (${shotsCaptured})`;
+    default:
+      return assertNever(state);
+  }
 }
 
 export function RecorderPanel(): JSX.Element {
@@ -211,9 +295,7 @@ export function RecorderPanel(): JSX.Element {
                 {isRecording
                   ? 'Recording live output'
                   : isTimelapseCapturing
-                    ? timelapseState === 'paused-hidden'
-                      ? 'Paused while tab is hidden'
-                      : 'Capturing interval stills'
+                    ? getTimelapseStatusText(timelapseState)
                   : isCountingDown
                     ? `Countdown ${countdownRemaining}`
                     : isProcessingCapture
@@ -408,9 +490,8 @@ export function RecorderPanel(): JSX.Element {
               recordings promptly.
             </Alert>
           ) : null}
-          <Alert severity={timelapseState === 'paused-hidden' ? 'warning' : 'info'}>
-            Timelapse capture pauses when this tab is hidden or minimized. When you return, the
-            session resumes from the current time and does not backfill missed frames.
+          <Alert severity={getTimelapseAlertSeverity(timelapseState)}>
+            {getTimelapseAlertText(timelapseState)}
           </Alert>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
             <Button
@@ -441,8 +522,12 @@ export function RecorderPanel(): JSX.Element {
               {isBurstCapturing ? 'Burst Running' : `Burst x${burstCount}`}
             </Button>
             <Button
-              color={timelapseState === 'paused-hidden' ? 'warning' : 'inherit'}
-              disabled={isRecording || (isProcessingCapture && !isTimelapseCapturing)}
+              color={getTimelapseButtonColor(timelapseState)}
+              disabled={
+                isRecording ||
+                (isProcessingCapture && !isTimelapseCapturing) ||
+                timelapseState === 'stopping'
+              }
               onClick={
                 isTimelapseCapturing
                   ? stopTimelapseCapture
@@ -451,9 +536,10 @@ export function RecorderPanel(): JSX.Element {
               startIcon={isTimelapseCapturing ? <StopRoundedIcon /> : <ScheduleRoundedIcon />}
               variant={isTimelapseCapturing ? 'contained' : 'outlined'}
             >
-              {isTimelapseCapturing
-                ? `Stop Timelapse (${timelapseShotsCaptured})`
-                : 'Start Timelapse'}
+              {getTimelapseButtonLabel(
+                isTimelapseCapturing ? timelapseState : 'idle',
+                timelapseShotsCaptured,
+              )}
             </Button>
           </Stack>
           {storageStats !== null ? (
