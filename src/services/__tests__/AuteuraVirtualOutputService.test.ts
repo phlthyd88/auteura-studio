@@ -242,10 +242,18 @@ describe('AuteuraVirtualOutputService', (): void => {
   });
 
   it('leases isolated client streams and releases them independently', (): void => {
-    const canvasTrack = new MockMediaStreamTrack('video');
+    const hostTrack = new MockMediaStreamTrack('video');
+    const clientATrack = new MockMediaStreamTrack('video');
+    const clientBTrack = new MockMediaStreamTrack('video');
+    const captureCanvasStream = vi
+      .fn((_canvas: HTMLCanvasElement, _targetFps: number): MediaStream =>
+        new MockMediaStream([hostTrack]) as unknown as MediaStream,
+      )
+      .mockReturnValueOnce(new MockMediaStream([hostTrack]) as unknown as MediaStream)
+      .mockReturnValueOnce(new MockMediaStream([clientATrack]) as unknown as MediaStream)
+      .mockReturnValueOnce(new MockMediaStream([clientBTrack]) as unknown as MediaStream);
     const service = new AuteuraVirtualOutputService({
-      captureCanvasStream: (): MediaStream =>
-        new MockMediaStream([canvasTrack]) as unknown as MediaStream,
+      captureCanvasStream,
     });
 
     const hostOutputStream = service.start({
@@ -268,6 +276,9 @@ describe('AuteuraVirtualOutputService', (): void => {
     expect(firstClientTrack).not.toBe(hostOutputTrack);
     expect(secondClientTrack).not.toBe(hostOutputTrack);
     expect(firstClientTrack).not.toBe(secondClientTrack);
+    expect(hostTrack.cloneCount).toBe(0);
+    expect(clientATrack.cloneCount).toBe(0);
+    expect(clientBTrack.cloneCount).toBe(0);
     expect(service.getStatusSnapshot().leasedStreamCount).toBe(2);
 
     service.releaseClientOutputStream('client-a');
@@ -280,17 +291,20 @@ describe('AuteuraVirtualOutputService', (): void => {
     service.stop();
 
     expect(secondClientTrack.stopped).toBe(true);
+    expect(hostOutputTrack.stopped).toBe(true);
     expect(service.getStatusSnapshot().leasedStreamCount).toBe(0);
   });
 
   it('updates delivery policy without leaking leased client streams', (): void => {
     const firstCanvasTrack = new MockMediaStreamTrack('video');
+    const leasedCanvasTrack = new MockMediaStreamTrack('video');
     const secondCanvasTrack = new MockMediaStreamTrack('video');
     const captureCanvasStream = vi
       .fn((_canvas: HTMLCanvasElement, _targetFps: number): MediaStream =>
         new MockMediaStream([firstCanvasTrack]) as unknown as MediaStream,
       )
       .mockReturnValueOnce(new MockMediaStream([firstCanvasTrack]) as unknown as MediaStream)
+      .mockReturnValueOnce(new MockMediaStream([leasedCanvasTrack]) as unknown as MediaStream)
       .mockReturnValueOnce(new MockMediaStream([secondCanvasTrack]) as unknown as MediaStream);
     const service = new AuteuraVirtualOutputService({
       captureCanvasStream,

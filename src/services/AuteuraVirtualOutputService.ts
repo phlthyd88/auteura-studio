@@ -13,6 +13,11 @@ interface VirtualOutputServiceDependencies {
   ) => MediaStream;
 }
 
+interface LeasedClientStream {
+  readonly ownedVideoSourceStream: MediaStream | null;
+  readonly stream: MediaStream;
+}
+
 export interface VirtualOutputDeliveryPolicy {
   readonly profile: 'balanced' | 'full' | 'safe';
   readonly targetFps: number;
@@ -71,12 +76,12 @@ export class AuteuraVirtualOutputService {
   private lastError: string | null = null;
   private lastHeartbeatAt: number | null = null;
   private outputStream: MediaStream | null = null;
-  private leasedStreams = new Map<string, MediaStream>();
+  private leasedStreams = new Map<string, LeasedClientStream>();
   private state: VirtualOutputStatusSnapshot['state'] = 'idle';
   private subscribers = new Set<(snapshot: VirtualOutputStatusSnapshot) => void>();
   private targetFps = 0;
   private clonedAudioTracks: MediaStreamTrack[] = [];
-  private clonedVideoTracks: MediaStreamTrack[] = [];
+  private outputVideoTracks: MediaStreamTrack[] = [];
 
   constructor(dependencies: VirtualOutputServiceDependencies = {}) {
     this.captureCanvasStream =
@@ -104,6 +109,7 @@ export class AuteuraVirtualOutputService {
       this.state = 'error';
       this.lastError =
         error instanceof Error ? error.message : 'Virtual output failed to start.';
+      this.removeOutputVideoTracks();
       this.teardownCanvasSourceStream();
       this.removeClonedAudioTracks();
       this.notify();
@@ -113,9 +119,9 @@ export class AuteuraVirtualOutputService {
 
   stop(): void {
     this.releaseAllClientStreams();
+    this.removeOutputVideoTracks();
     this.teardownCanvasSourceStream();
     this.removeClonedAudioTracks();
-    this.removeClonedVideoTracks();
     this.outputStream = null;
     this.canvas = null;
     this.clientCount = 0;
@@ -193,18 +199,30 @@ export class AuteuraVirtualOutputService {
     const includeAudio = options.includeAudio ?? true;
     const includeVideo = options.includeVideo ?? true;
     const clientStream = new MediaStream();
-    sourceStream.getTracks().forEach((track: MediaStreamTrack): void => {
-      if (track.kind === 'audio' && includeAudio === false) {
-        return;
+    let ownedVideoSourceStream: MediaStream | null = null;
+
+    if (includeVideo) {
+      ownedVideoSourceStream = this.createClientVideoSourceStream();
+
+      if (ownedVideoSourceStream === null) {
+        return null;
       }
 
-      if (track.kind === 'video' && includeVideo === false) {
-        return;
-      }
+      ownedVideoSourceStream.getVideoTracks().forEach((track: MediaStreamTrack): void => {
+        clientStream.addTrack(track);
+      });
+    }
 
-      clientStream.addTrack(track.clone());
+    if (includeAudio) {
+      sourceStream.getAudioTracks().forEach((track: MediaStreamTrack): void => {
+        clientStream.addTrack(track);
+      });
+    }
+
+    this.leasedStreams.set(clientId, {
+      ownedVideoSourceStream,
+      stream: clientStream,
     });
-    this.leasedStreams.set(clientId, clientStream);
     this.notify();
     return clientStream;
   }
@@ -215,7 +233,7 @@ export class AuteuraVirtualOutputService {
       return;
     }
 
-    leasedStream.getTracks().forEach((track: MediaStreamTrack): void => {
+    leasedStream.ownedVideoSourceStream?.getTracks().forEach((track: MediaStreamTrack): void => {
       track.stop();
     });
     this.leasedStreams.delete(clientId);
@@ -292,7 +310,7 @@ export class AuteuraVirtualOutputService {
       clientCount: this.clientCount,
       extensionDetected: this.extensionDetected,
       hasAudio: this.clonedAudioTracks.length > 0,
-      hasVideo: this.clonedVideoTracks.length > 0,
+      hasVideo: this.outputVideoTracks.length > 0,
       hostRegistered: this.hostRegistered,
       lastBridgeEvent: this.lastBridgeEvent,
       lastError: this.lastError,
@@ -342,15 +360,13 @@ export class AuteuraVirtualOutputService {
       throw new Error('Virtual output requires a positive target FPS.');
     }
 
-    this.removeClonedVideoTracks();
+    this.removeOutputVideoTracks();
     this.teardownCanvasSourceStream();
 
     this.canvasSourceStream = this.captureCanvasStream(this.canvas, this.targetFps);
-    this.clonedVideoTracks = this.canvasSourceStream
-      .getVideoTracks()
-      .map((track: MediaStreamTrack): MediaStreamTrack => track.clone());
+    this.outputVideoTracks = this.canvasSourceStream.getVideoTracks();
 
-    this.clonedVideoTracks.forEach((track: MediaStreamTrack): void => {
+    this.outputVideoTracks.forEach((track: MediaStreamTrack): void => {
       this.outputStream?.addTrack(track);
     });
   }
@@ -371,12 +387,11 @@ export class AuteuraVirtualOutputService {
     });
   }
 
-  private removeClonedVideoTracks(): void {
-    this.clonedVideoTracks.forEach((track: MediaStreamTrack): void => {
+  private removeOutputVideoTracks(): void {
+    this.outputVideoTracks.forEach((track: MediaStreamTrack): void => {
       this.outputStream?.removeTrack(track);
-      track.stop();
     });
-    this.clonedVideoTracks = [];
+    this.outputVideoTracks = [];
   }
 
   private removeClonedAudioTracks(): void {
@@ -392,6 +407,14 @@ export class AuteuraVirtualOutputService {
       track.stop();
     });
     this.canvasSourceStream = null;
+  }
+
+  private createClientVideoSourceStream(): MediaStream | null {
+    if (this.canvas === null || this.targetFps <= 0) {
+      return null;
+    }
+
+    return this.captureCanvasStream(this.canvas, this.targetFps);
   }
 
   private releaseAllClientStreams(): void {
